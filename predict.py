@@ -1,7 +1,6 @@
 import argparse
 import json
 import os
-
 import numpy as np
 import pandas as pd
 import torch
@@ -9,6 +8,9 @@ import transformers
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, BertConfig
+from peft import PeftModel
+from transformers import AutoModelForSequenceClassification
+
 
 from regression_multilabel import (
     DataCollatorForSupervisedDataset,
@@ -19,16 +21,19 @@ from regression_multilabel import (
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with a fine-tuned mRNABERT model.")
-    parser.add_argument("--model_path", type=str, default="", help="Path to the fine-tuned checkpoint directory.")
+    parser.add_argument("--checkpoint_path", type=str, default="", help="Path to the fine-tuned checkpoint directory.")
     parser.add_argument("--data_path", type=str, default="", help="Directory containing test.csv.")
     parser.add_argument("--output_dir", type=str, default="predictions")
     parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--use_lora", type=bool, default=False, help="Whether the checkpoint is from a LoRA fine-tuning run.")
+    parser.add_argument("--base_model_name", type=str, default="YYLY66/mRNABERT", help="The base model name to use when loading LoRA weights. Only needed if --use_lora is True.")
+    parser.add_argument("--num_labels", type=int, default=78, help="Number of labels for the regression task. Only needed if --use_lora is True.")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    assert args.model_path, "--model_path must be set to your checkpoint directory."
+    assert args.checkpoint_path, "--checkpoint_path must be set to your checkpoint directory."
     assert args.data_path, "--data_path must be set to the directory containing test.csv."
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -41,14 +46,40 @@ def main():
         trust_remote_code=True,
     )
 
-    config = BertConfig.from_pretrained(args.model_path)
-    print(f"num_labels inferred from checkpoint: {config.num_labels}")
-    print(f"model_max_length inferred from tokenizer: {tokenizer.model_max_length}")
-    model = transformers.AutoModelForSequenceClassification.from_pretrained(
-        args.model_path,
-        config=config,
-        trust_remote_code=True,
-    )
+    if not args.use_lora:
+        print("Loading full model from checkpoint...")
+        config = BertConfig.from_pretrained(args.model_path)
+        print(f"num_labels inferred from checkpoint: {config.num_labels}")
+        print(f"model_max_length inferred from tokenizer: {tokenizer.model_max_length}")
+        model = transformers.AutoModelForSequenceClassification.from_pretrained(
+            args.model_path,
+            config=config,
+            trust_remote_code=True,
+        )
+    else:
+        print("Loading base model config...")
+        config = BertConfig.from_pretrained(
+            args.base_model_name,
+            num_labels=args.num_labels,
+            problem_type="regression",
+        )
+
+        print("Loading base model...")
+        model = transformers.AutoModelForSequenceClassification.from_pretrained(
+            args.base_model_name,
+            trust_remote_code=True,
+            config=config
+        )
+
+        print("Loading LoRA weights...")
+        base_model = AutoModelForSequenceClassification.from_pretrained(
+            "YYLY66/mRNABERT",
+            num_labels=args.num_labels,
+            trust_remote_code=True,
+        )
+
+        model = PeftModel.from_pretrained(base_model, args.checkpoint_path)
+
     model.to(device)
     model.eval()
 
