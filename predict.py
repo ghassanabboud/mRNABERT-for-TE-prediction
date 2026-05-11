@@ -40,44 +40,40 @@ def main():
     print(f"Using device: {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(
-        args.model_path,
+        args.checkpoint_path,
         padding_side="right",
         use_fast=True,
         trust_remote_code=True,
     )
 
     if not args.use_lora:
+        
         print("Loading full model from checkpoint...")
-        config = BertConfig.from_pretrained(args.model_path)
+        config = BertConfig.from_pretrained(args.checkpoint_path)
         print(f"num_labels inferred from checkpoint: {config.num_labels}")
         print(f"model_max_length inferred from tokenizer: {tokenizer.model_max_length}")
         model = transformers.AutoModelForSequenceClassification.from_pretrained(
-            args.model_path,
+            args.checkpoint_path,
             config=config,
             trust_remote_code=True,
         )
     else:
-        print("Loading base model config...")
+        print("you are loading a LoRA checkpoint...")
+        print("CAREFUL: IF THE LORA CHECKPOINT WAS NOT SAVED WITH TASK_TYPE=SEQ_CLS, THEN THIS CODE WILL YIELD ARBITRARY RESULTS. THE ADAPTER_MODEL.BIN WILL CONTAIN LORA LAYERS BUT NOT THE SEQUENCE CLASSIFICATION HEAD.")
+        print("Loading base model...")
+
         config = BertConfig.from_pretrained(
             args.base_model_name,
             num_labels=args.num_labels,
             problem_type="regression",
         )
-
-        print("Loading base model...")
-        model = transformers.AutoModelForSequenceClassification.from_pretrained(
+        base_model = AutoModelForSequenceClassification.from_pretrained(
             args.base_model_name,
             trust_remote_code=True,
             config=config
         )
 
-        print("Loading LoRA weights...")
-        base_model = AutoModelForSequenceClassification.from_pretrained(
-            "YYLY66/mRNABERT",
-            num_labels=args.num_labels,
-            trust_remote_code=True,
-        )
-
+        print("Integrating LoRA weights...")
         model = PeftModel.from_pretrained(base_model, args.checkpoint_path)
 
     model.to(device)
@@ -114,6 +110,8 @@ def main():
     all_labels = np.concatenate(all_labels, axis=0)   # (N, num_labels)
 
     label_names = test_dataset.label_names
+    print(f"Label names: {label_names}")
+    print(len(label_names))
     metrics = calculate_metric_for_regression(all_logits, all_labels, label_names=label_names)
     print("\nMetrics:")
     for k, v in metrics.items():
@@ -128,8 +126,11 @@ def main():
     names = label_names if len(label_names) == n_labels else [str(i) for i in range(n_labels)]
     pred_cols = {f"predicted_{n}": all_logits[:, i] for i, n in enumerate(names)}
     true_cols = {f"{n}": all_labels[:, i] for i, n in enumerate(names)}
-    df = pd.DataFrame({**pred_cols, **true_cols})
+
+    #CAREFUL: I CAN ONLY DO THIS BECAUSE I EXPLICITELY SAID SHUFFLE=FALSE WHEN INITIALIZING THE DATALOADER. OTHERWISE, THE SEQUENCES WOULD NOT BE IN THE SAME ORDER AS THE PREDICTIONS/LABELS.
+    df = pd.DataFrame({"sequence": test_dataset.sequences, **true_cols, **pred_cols})
     df.to_csv(os.path.join(args.output_dir, "predictions_test_set.csv"), index=False)
+    df.insert
 
     print(f"\nSaved predictions to {args.output_dir}/predictions.csv")
     print(f"Saved metrics    to {args.output_dir}/metrics.json")

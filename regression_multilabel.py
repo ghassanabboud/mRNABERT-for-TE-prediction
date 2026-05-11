@@ -107,6 +107,7 @@ class SupervisedDataset(Dataset):
         self.labels = labels
         self.num_labels = len(labels[0]) if labels else 0
         self.label_names = header[1:]
+        self.sequences = texts
 
         #labels_arr = np.array(labels, dtype=float)
         #print(f"\n[Dataset] Loaded {data_path}")
