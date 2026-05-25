@@ -15,26 +15,27 @@ from sklearn.metrics import mean_squared_error, r2_score
 import transformers
 from transformers import Trainer, EarlyStoppingCallback
 from transformers.modeling_outputs import SequenceClassifierOutput
+from regression_multilabel import calculate_metric_for_regression
 
 
 @dataclass
 class ModelArguments:
-    input_dim: int = field(default=768, metadata={"help": "Embedding dimension (mRNABERT hidden size)."})
-    hidden_dims: List[int] = field(
-        default_factory=lambda: [512, 256],
-        metadata={"help": "Hidden layer sizes, e.g. --hidden_dims 512 256 128"},
+    hidden_dims: str = field(
+        default="512,256",
+        metadata={"help": "Comma-separated hidden layer sizes, e.g. --hidden_dims 512,256,128"},
     )
     dropout: float = field(default=0.1)
 
 
 @dataclass
 class DataArguments:
-    train_embeddings: str = field(metadata={"help": "Path to train embeddings .npz file."})
-    train_labels: str = field(metadata={"help": "Path to train labels .csv (sequence col + label cols)."})
-    eval_embeddings: str = field(metadata={"help": "Path to eval embeddings .npz file."})
-    eval_labels: str = field(metadata={"help": "Path to eval labels .csv."})
-    test_embeddings: Optional[str] = field(default=None, metadata={"help": "Path to test embeddings .npz file."})
-    test_labels: Optional[str] = field(default=None, metadata={"help": "Path to test labels .csv."})
+    #train_embeddings: str = field(metadata={"help": "Path to train embeddings .npz file."})
+    #train_labels: str = field(metadata={"help": "Path to train labels .csv (sequence col + label cols)."})
+    #eval_embeddings: str = field(metadata={"help": "Path to eval embeddings .npz file."})
+    #eval_labels: str = field(metadata={"help": "Path to eval labels .csv."})
+    #test_embeddings: Optional[str] = field(default=None, metadata={"help": "Path to test embeddings .npz file."})
+    #test_labels: Optional[str] = field(default=None, metadata={"help": "Path to test labels .csv."})
+    data_path: str = field(default=None, metadata={"help": "Path to the training data."})
 
 
 @dataclass
@@ -43,8 +44,8 @@ class TrainingArguments(transformers.TrainingArguments):
     run_name: str = field(default="run")
     optim: str = field(default="adamw_torch")
     gradient_accumulation_steps: int = field(default=1)
-    per_device_train_batch_size: int = field(default=64)
-    per_device_eval_batch_size: int = field(default=256)
+    per_device_train_batch_size: int = field(default=256)
+    per_device_eval_batch_size: int = field(default=512)
     fp16: bool = field(default=False)
     learning_rate: float = field(default=1e-4)
     weight_decay: float = field(default=0.01)
@@ -56,7 +57,7 @@ class TrainingArguments(transformers.TrainingArguments):
     evaluation_strategy: str = field(default="steps")
     save_total_limit: int = field(default=3)
     load_best_model_at_end: bool = field(default=True)
-    metric_for_best_model: str = field(default="r2_score_mean")
+    metric_for_best_model: str = field(default="r2_mean_TE")
     greater_is_better: bool = field(default=True)
     output_dir: str = field(default="output_mlp")
     dataloader_pin_memory: bool = field(default=False)
@@ -68,6 +69,7 @@ class TrainingArguments(transformers.TrainingArguments):
     eval_and_save_results: bool = field(default=True)
     early_stopping_patience: int = field(default=10)
     early_stopping_threshold: float = field(default=0.0)
+    remove_unused_columns: bool = field(default=False) # essential so that the HFtrainer doesnt drop the labels rom batch before collator. will throw a KeyError: "labels" if removed.
 
 
 class EmbeddingDataset(Dataset):
@@ -82,12 +84,22 @@ class EmbeddingDataset(Dataset):
             header = next(reader)
             data = list(reader)
 
-        # CSV format: sequence (col 0) then label columns — same as the CSVs fed to encode.py
-        self.label_names = header[1:]
-        self.labels = [
-            [float(v) if v != "" else float("nan") for v in row[1:]]
-            for row in data
-        ]
+        if "sequence" not in header:
+            raise ValueError(f"CSV must have a 'sequence' column. Got: {header}")
+
+        seq_idx        = header.index("sequence")
+        metadata_names = header[:seq_idx]
+        label_names    = header[seq_idx + 1:]
+
+        texts    = [row[seq_idx] for row in data]
+        metadata = [[row[i] for i in range(seq_idx)] for row in data]
+        labels   = [[float(v) if v != '' else float('nan') for v in row[seq_idx + 1:]] for row in data]
+
+        self.sequences = texts
+        self.metadata_names = metadata_names
+        self.metadata = metadata
+        self.label_names = label_names
+        self.labels = labels
         self.num_labels = len(self.labels[0]) if self.labels else 0
 
         assert len(self.embeddings) == len(self.labels), (
@@ -119,55 +131,24 @@ class MLPRegressor(nn.Module):
         layers.append(nn.Linear(prev, n_labels))
         self.mlp = nn.Sequential(*layers)
 
+        print(f"Initialized MLPRegressor with input_dim={input_dim}, hidden_dims={hidden_dims}, n_labels={n_labels}, dropout={dropout}")
+
     def forward(self, embeddings: torch.Tensor, **kwargs) -> SequenceClassifierOutput:
         return SequenceClassifierOutput(logits=self.mlp(embeddings))
 
 
 class MaskedRegressionTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
-        labels = inputs.pop("labels")
-        outputs = model(**inputs)
+        inputs_copy = inputs.copy()
+        labels = inputs_copy.pop("labels")
+        print("keys of inputs_copy before computing loss:",inputs_copy.keys())
+        print("keys of inputs before computing loss:",inputs.keys())
+        outputs = model(**inputs_copy)
         logits = outputs.logits
         mask = ~torch.isnan(labels)
         loss = torch.nn.functional.mse_loss(logits[mask], labels[mask], reduction="mean")
         return (loss, outputs) if return_outputs else loss
 
-
-def calculate_metric_for_regression(logits: np.ndarray, labels: np.ndarray, label_names=None):
-    """Per-label Pearson, Spearman, R² and macro-averaged MSE."""
-    if logits.ndim == 3:
-        logits = logits.reshape(-1, logits.shape[-1])
-
-    predictions = logits.squeeze()
-    labels = labels.squeeze()
-    if predictions.ndim == 1:
-        predictions = predictions[:, np.newaxis]
-        labels = labels[:, np.newaxis]
-
-    all_valid_preds, all_valid_labels = [], []
-    per_label = {"pearson": [], "spearman": [], "r2": []}
-
-    for i in range(predictions.shape[1]):
-        preds_i, labels_i = predictions[:, i], labels[:, i]
-        valid = ~np.isnan(labels_i)
-        if valid.sum() < 2:
-            print(f"[Metrics]     -> skipped (fewer than 2 valid samples)")
-            continue
-        preds_i, labels_i = preds_i[valid], labels_i[valid]
-        all_valid_preds.append(preds_i)
-        all_valid_labels.append(labels_i)
-        per_label["pearson"].append(pearsonr(labels_i, preds_i)[0])
-        per_label["spearman"].append(spearmanr(labels_i, preds_i)[0])
-        per_label["r2"].append(r2_score(labels_i, preds_i))
-
-    return {
-        "mse_loss_mean": float(mean_squared_error(
-            np.concatenate(all_valid_labels), np.concatenate(all_valid_preds)
-        )),
-        "pearson_corr_mean": float(np.mean(per_label["pearson"])),
-        "spearman_corr_mean": float(np.mean(per_label["spearman"])),
-        "r2_score_mean": float(np.mean(per_label["r2"])),
-    }
 
 
 def safe_save_model(trainer: transformers.Trainer, output_dir: str):
@@ -192,23 +173,35 @@ def train():
         )
     print(f"Output dir: {training_args.output_dir}")
 
-    train_dataset = EmbeddingDataset(data_args.train_embeddings, data_args.train_labels)
-    val_dataset = EmbeddingDataset(data_args.eval_embeddings, data_args.eval_labels)
+    npz_files = [os.path.join(data_args.data_path, f"{split}_embeddings.npz") for split in ["train", "dev", "test"]]
+    csv_files = [os.path.join(data_args.data_path, f"{split}.csv") for split in ["train", "dev", "test"]]
+    for path in npz_files + csv_files:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Required file not found: {path}")
+
+    train_dataset = EmbeddingDataset(npz_files[0], csv_files[0])
+    val_dataset = EmbeddingDataset(npz_files[1], csv_files[1])
     test_dataset = (
-        EmbeddingDataset(data_args.test_embeddings, data_args.test_labels)
-        if data_args.test_embeddings and data_args.test_labels
-        else None
+        EmbeddingDataset(npz_files[2], csv_files[2]) 
     )
+
+    if train_dataset.embeddings.shape[1] != test_dataset.embeddings.shape[1] or train_dataset.embeddings.shape[1] != val_dataset.embeddings.shape[1]:
+        raise ValueError(
+            f"Embedding dimension mismatch: train {train_dataset.embeddings.shape[1]} vs "
+            f"val {val_dataset.embeddings.shape[1]} vs test {test_dataset.embeddings.shape[1]}"
+        )
 
     print(
         f"Dataset sizes: train={len(train_dataset)}  val={len(val_dataset)}"
-        + (f"  test={len(test_dataset)}" if test_dataset else "")
+        +f"  test={len(test_dataset)}"
     )
     print(f"num_labels={train_dataset.num_labels}  label_names={train_dataset.label_names}")
+    print("Embedding dimension:", train_dataset.embeddings.shape[1])
 
+    hidden_dims = [int(x) for x in model_args.hidden_dims.split(",")]
     model = MLPRegressor(
-        input_dim=model_args.input_dim,
-        hidden_dims=model_args.hidden_dims,
+        input_dim=train_dataset.embeddings.shape[1],
+        hidden_dims=hidden_dims,
         n_labels=train_dataset.num_labels,
         dropout=model_args.dropout,
     )
