@@ -1,22 +1,19 @@
-# mRNABERT
+# Improving mRNABERT's translation efficiency prediction with structural priors
 
-This repository includes the official implementation of [mRNABERT: advancing mRNA sequence design with a universal language model and comprehensive dataset](https://www.nature.com/articles/s41467-025-65340-8). We provide pre-trained model, examples of pre-training and fine-tuning, and pre-trained datasets.
 
-## 📢 Update
+This repository builds upon the original [mRNABERT codebase](https://github.com/yyly6/mRNABERT). It extends its evaluation on predicting mRNA translation efficiency on ultra-long sequences from the [RiboNN dataset](https://github.com/Sanofi-Public/RiboNN). It also investigated whether augmenting the model with structural priors can enhance its performance on this task. Please refer to the original [mRNABERT README]((https://github.com/yyly6/mRNABERT)) for more information about model architecture and pre-training.
 
-**We have released all downstream datasets on Zenodo** 
+Novel contributions: 
+- a RiboNN specific [pre-processing pipeline](preprocess_RiboNN_data.py) supporting extraction of UTR5, CDS, and UTR3 sequences, as well as specifying different test and validation splits for direct comparison with RiboNN's original results.
+- an extension of the [fine-tuning script](regression_multilabel.py) to support multilabel regression.
+- experiments evaluating the incorporation of two structural priors into the model's prediction [TO BE DONE]
 
-You can access and download the datasets [here](https://zenodo.org/records/17786045).
-
-To reproduce our results, please follow the instructions in the **[Fine-tune with pre-trained model](#fine-tuning)** section.
-
-> ⚠️ **Note on Hyperparameters:**
-> When fine-tuning, please make sure to adjust parameters such as `model_max_length`, `batch_size`, `epoch`, and `eval_steps` according to the specific dataset you are using.
 
 ## Contents
 
 - [Introduction](#introduction)
 - [Create Environment with Conda](#create-environment-with-conda)
+- [Pre-processing RiboNN dataset](#pre-processing-ribonn-dataset)
 - [Pre-trained Model and Datasets](#pre-trained-model-and-datasets)
 - [Pre-Training](#pre-training)
 - [Fine-tuning](#fine-tuning)
@@ -25,9 +22,7 @@ To reproduce our results, please follow the instructions in the **[Fine-tune wit
 
 ## Introduction
 
-mRNABERT is a robust language model pre-trained on over 18 million high-quality mRNA sequences, incorporating contrastive learning to integrate the semantic features of amino acids.
-
-![mRNABERT](figures/mRNABERT.png)
+fill
 
 ## Create Environment with Conda
 
@@ -39,12 +34,23 @@ mRNABERT is a robust language model pre-trained on over 18 million high-quality 
     pip install -r requirements.txt
     pip uninstall triton
 
-Furthermore, to streamline the setup process, we have prepared a pre-configured Conda environment containing all mRNABERT dependencies at [Zenodo](https://zenodo.org/records/15051237). You can easily download and extract it into your Conda environments directory, and it will be ready to use immediately.
+## Pre-processing RiboNN dataset
 
-    mkdir -C /path/to//miniconda3/envs/mrnabert
-    tar -xzvf /path/to/mrnabert.tar.gz -C /path/to/miniconda3/envs/mrnabert
-    conda activate mrnabert
+Download the RiboNN translation efficiency table provided as supplementary data of [Zheng et al.](https://www.nature.com/articles/s41587-025-02712-x#Sec21) through this command:
 
+```bash
+wget https://static-content.springer.com/esm/art%3A10.1038%2Fs41587-025-02712-x/MediaObjects/41587_2025_2712_MOESM3_ESM.xlsx human_RiboNN.xlsx
+wget https://static-content.springer.com/esm/art%3A10.1038%2Fs41587-025-02712-x/MediaObjects/41587_2025_2712_MOESM4_ESM.xlsx mouse_RiboNN.xlsx
+```
+
+
+Then, use the RiboNN preprocessing script as follows:
+
+```
+python preprocess_RiboNN_data.py --data_path human_RiboNN.xlsx --output_dir ./processed_data_RiboNN/ --sequence_mode full --val_fold 8 --test_fold 9
+```
+
+sequence_mode is one of `full`, `cds_only`, `utr5_only`, `utr3_only`, `utr5_cds` to conduct ablation studies on different regions of mRNA. The script will generate three CSV files for training, validation, and testing, each containing the sequence and its corresponding translation efficiency labels. You can specify different test and validation folds to directly compare with RiboNN's original results., keeping in mind that folds in the dataset are indexed from 0 to 9.
 
 ## Pre-trained Model and Datasets
 
