@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-
+import argparse
 RIBONN_DATA_PATH = "/scratch/izar/gabboud/mRNABERT/excel_data_RiboNN/41587_2025_2712_MOESM3_ESM.xlsx"
 
 def extract_cds(row):
@@ -64,31 +64,33 @@ def export_sequences_for_mrnabert(output_file, folds=None, sequence_mode="comple
 
 def main():
 
-    #change for different combinations to be saved
-    val_folds = [8]
-    test_folds = [9]
-    modes = ["full"]
+    parser = argparse.ArgumentParser(description="Preprocess RiboNN dataset for mRNABERT fine-tuning")
+    parser.add_argument("--data_path", type=str, default=RIBONN_DATA_PATH, help="Path to the RiboNN dataset in Excel format")
+    parser.add_argument("--output_dir", type=str, default="./processed_data_RiboNN/", help="Directory to save the processed CSV files")
+    parser.add_argument("--sequence_mode", type=str, default="full", help="Mode for sequence extraction: one of ['full', 'cds_only', 'utr5_only', 'utr3_only', 'utr5_cds']")
+    parser.add_argument("--val_fold", type=int, default=8, help="Fold(s) to use for validation")
+    parser.add_argument("--test_fold", type=int, default=9, help="Fold(s) to use for testing") 
+    args = parser.parse_args()
 
-    for (mode, val_fold, test_fold) in zip(modes, val_folds, test_folds):
-        output_dir = f"./processed_data_RiboNN/{mode}_val_fold_{val_fold}_test_fold_{test_fold}/"
-        print(f"Processing RiboNN data with mode {mode}, val_fold {val_fold}, test_fold {test_fold} and saving to {output_dir}")
-        os.makedirs(output_dir, exist_ok=True)
-        export_sequences_for_mrnabert(
-            output_file=os.path.join(output_dir, "train.csv"),
-            folds=[f for f in range(10) if f not in [val_fold, test_fold]],
-            sequence_mode=mode
-        )
-        export_sequences_for_mrnabert(
-            output_file=os.path.join(output_dir, "dev.csv"),
-            folds=[val_fold],
-            sequence_mode=mode
-        )
-        export_sequences_for_mrnabert(
-            output_file=os.path.join(output_dir, "test.csv"),
-            folds=[test_fold],
-            sequence_mode=mode
-        )
-    output_dir = "./processed_data_RiboNN/"
+    output_dir = os.path.join(args.output_dir , f"{args.mode}_val_fold_{args.val_fold}_test_fold_{args.test_fold}/")
+    print(f"Processing RiboNN data with mode {args.mode}, val_fold {args.val_fold}, test_fold {args.test_fold} and saving to {output_dir}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    export_sequences_for_mrnabert(
+        output_file=os.path.join(output_dir, "train.csv"),
+        folds=[f for f in range(10) if f not in [args.val_fold, args.test_fold]],
+        sequence_mode=args.sequence_mode
+    )
+    export_sequences_for_mrnabert(
+        output_file=os.path.join(output_dir, "dev.csv"),
+        folds=[args.val_fold],
+        sequence_mode=args.sequence_mode
+    )
+    export_sequences_for_mrnabert(
+        output_file=os.path.join(output_dir, "test.csv"),
+        folds=[args.test_fold],
+        sequence_mode=args.sequence_mode
+    )
 
 if __name__ == "__main__":
     main()
