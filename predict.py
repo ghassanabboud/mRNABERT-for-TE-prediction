@@ -94,6 +94,7 @@ def main():
     all_logits = []
     all_labels = []
 
+
     with torch.no_grad():
         for batch in tqdm(loader, desc="Inference"):
             input_ids = batch["input_ids"].to(device)
@@ -128,12 +129,20 @@ def main():
     true_cols = {f"{n}": all_labels[:, i] for i, n in enumerate(names)}
 
     #CAREFUL: I CAN ONLY DO THIS BECAUSE I EXPLICITELY SAID SHUFFLE=FALSE WHEN INITIALIZING THE DATALOADER. OTHERWISE, THE SEQUENCES WOULD NOT BE IN THE SAME ORDER AS THE PREDICTIONS/LABELS.
-    df = pd.DataFrame({"sequence": test_dataset.sequences, **true_cols, **pred_cols})
-    df.to_csv(os.path.join(args.output_dir, "predictions_test_set.csv"), index=False)
-    df.insert
+    meta_cols = {
+        name: [row[i] for row in test_dataset.metadata]
+        for i, name in enumerate(test_dataset.metadata_names)
+    }
+    df = pd.DataFrame({**meta_cols, "sequence": test_dataset.sequences, **true_cols, **pred_cols})
 
-    print(f"\nSaved predictions to {args.output_dir}/predictions.csv")
-    print(f"Saved metrics    to {args.output_dir}/metrics.json")
+    for col in true_cols.keys():
+        df[f"predicted_{col}"] = np.where(np.isnan(df[col]), np.nan, df[f"predicted_{col}"])
+    df["mean_TE"] = df[true_cols.keys()].mean(axis=1, skipna=True)
+    df["mean_predicted_TE"] = df[pred_cols.keys()].mean(axis=1, skipna=True)
+    df.to_csv(os.path.join(args.output_dir, "predictions_test_set.csv"), index=False)
+
+    print(f"\nSaved predictions to {args.output_dir}/predictions_test_set.csv")
+    print(f"Saved metrics    to {args.output_dir}/metrics_test_set.json")
 
 
 if __name__ == "__main__":

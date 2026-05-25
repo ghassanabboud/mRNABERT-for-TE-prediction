@@ -28,6 +28,7 @@ class ModelArguments:
     model_name_or_path: Optional[str] = field(default='YYLY66/mRNABERT')
     num_labels: int = field(default=1, metadata={"help": "Number of regression targets (output dimensions)."})
     use_lora: bool = field(default=False, metadata={"help": "whether to use LoRA"})
+    freeze_base: bool = field(default=False, metadata={"help": "whether to freeze the base model and only train the classifier head"})
     lora_r: int = field(default=32, metadata={"help": "hidden dimension for LoRA"})
     lora_alpha: int = field(default=64, metadata={"help": "alpha for LoRA"})
     lora_dropout: float = field(default=0.05, metadata={"help": "dropout rate for LoRA"})
@@ -91,8 +92,17 @@ class SupervisedDataset(Dataset):
             reader = csv.reader(f)
             header = next(reader)
             data = list(reader)
-        texts = [row[0] for row in data]
-        labels = [[float(v) if v != '' else float('nan') for v in row[1:]] for row in data]
+
+        if "sequence" not in header:
+            raise ValueError(f"CSV must have a 'sequence' column. Got: {header}")
+
+        seq_idx        = header.index("sequence")
+        metadata_names = header[:seq_idx]
+        label_names    = header[seq_idx + 1:]
+
+        texts    = [row[seq_idx] for row in data]
+        metadata = [[row[i] for i in range(seq_idx)] for row in data]
+        labels   = [[float(v) if v != '' else float('nan') for v in row[seq_idx + 1:]] for row in data]
 
         output = tokenizer(
             texts,
@@ -106,8 +116,10 @@ class SupervisedDataset(Dataset):
         self.attention_mask = output["attention_mask"]
         self.labels = labels
         self.num_labels = len(labels[0]) if labels else 0
-        self.label_names = header[1:]
+        self.label_names = label_names
         self.sequences = texts
+        self.metadata = metadata
+        self.metadata_names = metadata_names
 
         #labels_arr = np.array(labels, dtype=float)
         #print(f"\n[Dataset] Loaded {data_path}")
@@ -190,6 +202,9 @@ def calculate_metric_for_regression(logits: np.ndarray, labels: np.ndarray, labe
 
     predictions = logits.squeeze()
     labels = labels.squeeze()
+    #print("after squeezing, shapes:")
+    #print(f"  predictions: {predictions.shape}  (n_samples, n_labels)")
+    #print(f"labels:      {labels.shape}       (n_samples, n_labels)")
 
     # ensure 2D: (n_samples, n_labels)
     if predictions.ndim == 1:
@@ -203,7 +218,7 @@ def calculate_metric_for_regression(logits: np.ndarray, labels: np.ndarray, labe
 
     all_valid_preds = []
     all_valid_labels = []
-    per_label = {"pearson": [], "spearman": [], "r2": []}
+    per_label = {"pearson": [], "spearman": [], "r2": [], "cell-type": []}
     #print(f"[Metrics] Per-label masking and scores:")
     for i in range(n_labels):
         preds_i = predictions[:, i]
@@ -225,12 +240,15 @@ def calculate_metric_for_regression(logits: np.ndarray, labels: np.ndarray, labe
 
         # these metrics are calculated label-wise then averaged across labels
         # to match RiboNN's mean-R2 approach.
+        # r2 is defined as pearson**2 (not sklearn's coefficient of determination)
+        # to stay consistent with the external evaluation function.
         pearson_i, _ = pearsonr(labels_i, preds_i)
         spearman_i, _ = spearmanr(labels_i, preds_i)
-        r2_i = r2_score(labels_i, preds_i)
+        r2_i = pearson_i ** 2
         per_label["pearson"].append(pearson_i)
         per_label["spearman"].append(spearman_i)
         per_label["r2"].append(r2_i)
+        per_label["cell-type"].append(name)
         #print(f"[Metrics]     pearson={pearson_i:.4f}  spearman={spearman_i:.4f}  r2={r2_i:.4f}")
 
     metrics["mse_loss_mean"] = mean_squared_error(
@@ -239,6 +257,28 @@ def calculate_metric_for_regression(logits: np.ndarray, labels: np.ndarray, labe
     metrics["pearson_corr_mean"] = np.mean(per_label["pearson"])
     metrics["spearman_corr_mean"] = np.mean(per_label["spearman"])
     metrics["r2_score_mean"] = np.mean(per_label["r2"])
+
+    # mean TE per sequence: average across cell-types (NaN-safe), then correlate.
+    # predictions are masked by label NaN so both means are computed over the same
+    # cell-types per sequence, making them directly comparable.
+    predictions_naned_for_aggregation = np.where(np.isnan(labels), np.nan, predictions)
+    mean_pred_TE = np.nanmean(predictions_naned_for_aggregation, axis=1)
+    mean_label_TE = np.nanmean(labels, axis=1)
+    valid_TE = ~(np.isnan(mean_pred_TE) | np.isnan(mean_label_TE))
+    if valid_TE.sum() >= 2:
+        pearson_mean_TE, _ = pearsonr(mean_label_TE[valid_TE], mean_pred_TE[valid_TE])
+        r2_mean_TE = pearson_mean_TE ** 2
+    else:
+        pearson_mean_TE = float("nan")
+        r2_mean_TE = float("nan")
+
+    metrics["pearson_mean_TE"] = pearson_mean_TE
+    metrics["r2_mean_TE"] = r2_mean_TE
+    
+    for i, name in enumerate(per_label["cell-type"]):
+        metrics[f"pearson_{name}"] = per_label["pearson"][i]
+        metrics[f"spearman_{name}"] = per_label["spearman"][i]
+        metrics[f"r2_{name}"] = per_label["r2"][i]
 
     #print(f"[Metrics] Aggregated ({len(per_label['r2'])} labels contributed):")
     #print(f"[Metrics]   mse_loss_mean (macro over all valid positions): {metrics['mse_loss_mean']:.6f}")
@@ -277,7 +317,17 @@ def train():
         config=config
     )
     print("name of modules:")
-    print([n for n, _ in model.named_modules() if 'attention' in n][:20])
+    print([n for n, _ in model.named_modules()])
+
+    if model_args.freeze_base and model_args.use_lora:
+        raise ValueError("freeze_base and use_lora cannot both be True. Choose between training the whole model, training only the classifier head, or training with LoRA.")
+
+    if model_args.freeze_base:
+        print("Freezing base model parameters...")
+        for param in model.base_model.parameters():
+            param.requires_grad = False
+        print("Base model frozen. Only the regression head will be trained.")
+        
     
     if model_args.use_lora:
         lora_config = LoraConfig(
