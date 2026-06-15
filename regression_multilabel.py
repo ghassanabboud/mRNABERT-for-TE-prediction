@@ -26,7 +26,6 @@ import dataclasses
 @dataclass
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default='YYLY66/mRNABERT')
-    num_labels: int = field(default=1, metadata={"help": "Number of regression targets (output dimensions)."})
     use_lora: bool = field(default=False, metadata={"help": "whether to use LoRA"})
     freeze_base: bool = field(default=False, metadata={"help": "whether to freeze the base model and only train the classifier head"})
     lora_r: int = field(default=32, metadata={"help": "hidden dimension for LoRA"})
@@ -59,7 +58,7 @@ class TrainingArguments(transformers.TrainingArguments):
     lr_scheduler_type: str = field(default="cosine_with_restarts")
     save_total_limit: int = field(default=3)
     load_best_model_at_end: bool = field(default=True)
-    metric_for_best_model: str = field(default="r2_score_mean")
+    metric_for_best_model: str = field(default="r2_mean_TE")
     greater_is_better: bool = field(default=True)
     output_dir: str = field(default="output_gena")
     find_unused_parameters: bool = field(default=False)
@@ -303,45 +302,6 @@ def train():
         training_args = dataclasses.replace(training_args, output_dir=os.path.join(training_args.output_dir, run_name), run_name=run_name)
     print(f"Output dir: {training_args.output_dir}")
 
-    # model class definition is pulled from repo through trust_remote_code=True, AutoModelForSequenceClassification adds a regression head on top of the base model
-    # MSE loss is used by default for regression tasks in Hugging Face Transformers when num_labels=1
-    config = BertConfig.from_pretrained(
-        model_args.model_name_or_path,
-        num_labels=model_args.num_labels,
-        problem_type="regression",
-    )
-    model = transformers.AutoModelForSequenceClassification.from_pretrained(
-        model_args.model_name_or_path,
-        cache_dir=training_args.cache_dir,
-        trust_remote_code=True,
-        config=config
-    )
-    print("name of modules:")
-    print([n for n, _ in model.named_modules()])
-
-    if model_args.freeze_base and model_args.use_lora:
-        raise ValueError("freeze_base and use_lora cannot both be True. Choose between training the whole model, training only the classifier head, or training with LoRA.")
-
-    if model_args.freeze_base:
-        print("Freezing base model parameters...")
-        for param in model.base_model.parameters():
-            param.requires_grad = False
-        print("Base model frozen. Only the regression head will be trained.")
-        
-    
-    if model_args.use_lora:
-        lora_config = LoraConfig(
-            r=model_args.lora_r,
-            lora_alpha=model_args.lora_alpha,
-            target_modules=list(model_args.lora_target_modules.split(",")),
-            lora_dropout=model_args.lora_dropout,
-            bias="none",
-            task_type="SEQ_CLS",
-            inference_mode=False,
-        )
-        model = get_peft_model(model, lora_config)
-        model.print_trainable_parameters()
-
     # tokenizer loaded from base model, model_max_length is explicitely specified, default is 1024 here (truncation)
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
@@ -359,7 +319,44 @@ def train():
 
     print(f"\n[Train] Dataset sizes: train={len(train_dataset)}  val={len(val_dataset)}  test={len(test_dataset)}")
     print(f"[Train] num_labels={train_dataset.num_labels}  label_names={train_dataset.label_names}")
-    print(f"[Train] Model output head: num_labels={model_args.num_labels}  problem_type=regression")
+
+    # model class definition is pulled from repo through trust_remote_code=True, AutoModelForSequenceClassification adds a regression head on top of the base model
+    config = BertConfig.from_pretrained(
+        model_args.model_name_or_path,
+        num_labels=train_dataset.num_labels,
+        problem_type="regression",
+    )
+    model = transformers.AutoModelForSequenceClassification.from_pretrained(
+        model_args.model_name_or_path,
+        cache_dir=training_args.cache_dir,
+        trust_remote_code=True,
+        config=config
+    )
+    print("name of modules:")
+    print([n for n, _ in model.named_modules()])
+    print(f"[Train] Model output head: num_labels={train_dataset.num_labels}  problem_type=regression")
+
+    if model_args.freeze_base and model_args.use_lora:
+        raise ValueError("freeze_base and use_lora cannot both be True. Choose between training the whole model, training only the classifier head, or training with LoRA.")
+
+    if model_args.freeze_base:
+        print("Freezing base model parameters...")
+        for param in model.base_model.parameters():
+            param.requires_grad = False
+        print("Base model frozen. Only the regression head will be trained.")
+
+    if model_args.use_lora:
+        lora_config = LoraConfig(
+            r=model_args.lora_r,
+            lora_alpha=model_args.lora_alpha,
+            target_modules=list(model_args.lora_target_modules.split(",")),
+            lora_dropout=model_args.lora_dropout,
+            bias="none",
+            task_type="SEQ_CLS",
+            inference_mode=False,
+        )
+        model = get_peft_model(model, lora_config)
+        model.print_trainable_parameters()
 
     # this takes care of padding the input sequences to the same length in a batch and creating attention masks
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
