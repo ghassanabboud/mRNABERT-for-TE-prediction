@@ -72,8 +72,8 @@ def main():
     parser.add_argument("--test_fold", type=int, default=9, help="Fold(s) to use for testing") 
     args = parser.parse_args()
 
-    output_dir = os.path.join(args.output_dir , f"{args.mode}_val_fold_{args.val_fold}_test_fold_{args.test_fold}/")
-    print(f"Processing RiboNN data with mode {args.mode}, val_fold {args.val_fold}, test_fold {args.test_fold} and saving to {output_dir}")
+    output_dir = os.path.join(args.output_dir , f"{args.sequence_mode}_val_fold_{args.val_fold}_test_fold_{args.test_fold}/")
+    print(f"Processing RiboNN data with mode {args.sequence_mode}, val_fold {args.val_fold}, test_fold {args.test_fold} and saving to {output_dir}")
     os.makedirs(output_dir, exist_ok=True)
 
     export_sequences_for_mrnabert(
