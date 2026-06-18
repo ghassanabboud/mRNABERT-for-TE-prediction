@@ -93,12 +93,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="Preprocess RiboNN dataset for mRNABERT fine-tuning")
     parser.add_argument("--data_path", type=str, default=RIBONN_DATA_PATH, help="Path to the RiboNN dataset in Excel format")
-    parser.add_argument("--output_dir", type=str, default="./processed_data_RiboNN/", help="Directory to save the processed CSV files")
+    parser.add_argument("--output_dir", type=str, default=None, help="Directory to save the processed CSV files")
     parser.add_argument("--sequence_mode", type=str, default="full", help="Mode for sequence extraction: one of ['full', 'cds_only', 'utr5_only', 'utr3_only', 'utr5_cds', 'start_codon_window']")
     parser.add_argument("--total_window_length", type=int, default=None, help="Total window length in nucleotides for sequence_mode='start_codon_window' (split evenly around the start codon)")
-    parser.add_argument("--val_fold", type=int, default=8, help="Fold(s) to use for validation")
-    parser.add_argument("--test_fold", type=int, default=9, help="Fold(s) to use for testing")
-    parser.add_argument("--output_path", type=str, default=None, help="Path to save the processed CSV files (overrides output_dir if specified)")
     parser.add_argument("--max_cds_length", type=int, default=None, help="Maximum CDS length in nucleotides for sequence_mode='utr5_cds' (if specified, only the first max_cds_length nucleotides of the CDS will be included)")
     args = parser.parse_args()
 
@@ -109,34 +106,39 @@ def main():
     else:
         mode_label = args.sequence_mode
 
-    if args.output_path:
-        output_dir = args.output_path
-    else:
-        output_dir = os.path.join(args.output_dir, f"{mode_label}_val_fold_{args.val_fold}_test_fold_{args.test_fold}/")
-    print(f"Processing RiboNN data with mode {args.sequence_mode}, val_fold {args.val_fold}, test_fold {args.test_fold} and saving to {output_dir}")
+    output_dir = args.output_dir if args.output_dir is not None else f"./processed_data_RiboNN/cv_{mode_label}/"
+
+
+
+    print(f"Creating 10-fold cross-validation folder for RiboNN data with mode {args.sequence_mode} and saving to {output_dir}")
     os.makedirs(output_dir, exist_ok=True)
 
-    export_sequences_for_mrnabert(
-        output_file=os.path.join(output_dir, "train.csv"),
-        folds=[f for f in range(10) if f not in [args.val_fold, args.test_fold]],
-        sequence_mode=args.sequence_mode,
-        total_window_length=args.total_window_length,
-        max_cds_length=args.max_cds_length
-    )
-    export_sequences_for_mrnabert(
-        output_file=os.path.join(output_dir, "dev.csv"),
-        folds=[args.val_fold],
-        sequence_mode=args.sequence_mode,
-        total_window_length=args.total_window_length,
-        max_cds_length=args.max_cds_length
-    )
-    export_sequences_for_mrnabert(
-        output_file=os.path.join(output_dir, "test.csv"),
-        folds=[args.test_fold],
-        sequence_mode=args.sequence_mode,
-        total_window_length=args.total_window_length,
-        max_cds_length=args.max_cds_length
-    )
+    for i in range(10):
+        test_fold = i
+        val_fold = (i + 1) % 10
+        fold_output_dir = os.path.join(output_dir, f"val_fold_{val_fold}_test_fold_{test_fold}")
+        os.makedirs(fold_output_dir, exist_ok=True)
+        export_sequences_for_mrnabert(
+            output_file=os.path.join(fold_output_dir, "train.csv"),
+            folds=[f for f in range(10) if f not in [val_fold, test_fold]],
+            sequence_mode=args.sequence_mode,
+            total_window_length=args.total_window_length,
+            max_cds_length=args.max_cds_length
+        )
+        export_sequences_for_mrnabert(
+            output_file=os.path.join(fold_output_dir, "dev.csv"),
+            folds=[val_fold],
+            sequence_mode=args.sequence_mode,
+            total_window_length=args.total_window_length,
+            max_cds_length=args.max_cds_length
+        )
+        export_sequences_for_mrnabert(
+            output_file=os.path.join(fold_output_dir, "test.csv"),
+            folds=[test_fold],
+            sequence_mode=args.sequence_mode,
+            total_window_length=args.total_window_length,
+            max_cds_length=args.max_cds_length
+        )
 
 if __name__ == "__main__":
     main()
