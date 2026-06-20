@@ -4,7 +4,7 @@ import pandas as pd
 import seaborn as sns
 from scipy import stats
 
-
+plt.rcParams.update({'font.size': 12})
 paths = ["/scratch/izar/gabboud/mRNABERT/outputs/cv_cds_only_1024",
          "/scratch/izar/gabboud/mRNABERT/outputs/cv_utr5_only_1024",
          "/scratch/izar/gabboud/mRNABERT/outputs/cv_utr5_cds_1024",
@@ -28,23 +28,22 @@ max_lengths = [1024,
                2044,
                2044]
 
-order = ["CDS only", "UTR5 only", "UTR5 + CDS", "UTR5 + CDS + UTR3",
-         "600nt centered on start codon"]
-hue_order = [400, 1024, 2044]
+order = ["CDS only", "UTR5 only", "UTR5 + CDS", "UTR5 + CDS + UTR3"]
+hue_order = [1024, 2044]
 
 df_list = []
 for path, mode, max_length in zip(paths, modes, max_lengths):
     df = pd.read_csv(f"{path}/cv_results.csv")
     df["mode"] = mode
-    df["Maximum Input Sequence Length"] = max_length
+    df["Maximum Sequence Length"] = max_length
     df_list.append(df)
 
 df = pd.concat(df_list, ignore_index=True)
 
 plt.figure(figsize=(10, 7))
-ax = sns.boxplot(x="mode", y="eval_r2_mean_TE", hue="Maximum Input Sequence Length",
+ax = sns.boxplot(x="mode", y="eval_r2_mean_TE", hue="Maximum Sequence Length",
                  data=df, order=order, hue_order=hue_order, boxprops=dict(alpha=.3))
-sns.stripplot(x="mode", y="eval_r2_mean_TE", hue="Maximum Input Sequence Length",
+sns.stripplot(x="mode", y="eval_r2_mean_TE", hue="Maximum Sequence Length",
               data=df, order=order, hue_order=hue_order,
               dodge=True, jitter=True, alpha=1, legend=False)
 
@@ -100,7 +99,7 @@ def sig_label(vals1, vals2):
 
 def group_vals(mode, length):
     """R² values per test_fold, sorted so pairing is consistent."""
-    return (df[(df["mode"] == mode) & (df["Maximum Input Sequence Length"] == length)]
+    return (df[(df["mode"] == mode) & (df["Maximum Sequence Length"] == length)]
             .sort_values("test_fold")["eval_r2_mean_TE"]
             .values)
 
