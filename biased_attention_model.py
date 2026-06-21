@@ -1,3 +1,4 @@
+import contextlib
 from typing import Optional
 
 import torch
@@ -117,8 +118,9 @@ class mRNABERTWithBioPriorHead(nn.Module):
         labels: Optional[torch.Tensor] = None,           # unused here; loss in trainer
         token_type_ids: Optional[torch.Tensor] = None,   # accepted but forwarded only if needed
     ) -> SequenceClassifierOutput:
-        # Frozen backbone — no gradient tracking needed
-        with torch.no_grad():
+        backbone_frozen = not next(self.bert.parameters()).requires_grad
+        ctx = torch.no_grad() if backbone_frozen else contextlib.nullcontext()
+        with ctx:
             bert_kwargs = dict(input_ids=input_ids, attention_mask=attention_mask)
             if token_type_ids is not None:
                 bert_kwargs["token_type_ids"] = token_type_ids
