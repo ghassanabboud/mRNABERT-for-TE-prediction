@@ -7,6 +7,8 @@ At 1024 max model length, including only the 5'UTR and the CDS yielded better re
 
 I decided not to test model max_length of 3066 after all because training would be too slow. We can inly accomodate a batch of 2 on the V100 global mem which would lead to training of 1 hour per epoch without evaluation. Instead, max_lenght of 2044 is a good compromise that will demonstrate my point: increased accuracy from more information about the CDS and not about inclusion of the 3'UTR. length of 2044 can accomodate batch sizes of 4 so 30 minuters per epoch without evaluation. That's without mentioning very noisy training that would result from batches of 2. 
 
+Interesting result: a smaller model with amx_length of 400 and only the 600 nt window around the start codon yields $R^2$ of 0.59, almost matching the performance of the utr5+cds at 1024 max model length of 0.65. (these are result on one fold) This emphasizes the importance of the start codon region and the interactions between the 5'UTR and the CDS around it.
+
 For the next step I need 10-fold CV of these results to report more robustly. I will launch CV runs. 
 
 ## Objective 
@@ -14,6 +16,8 @@ For the next step I need 10-fold CV of these results to report more robustly. I 
 This first experiment will formalize all the experiments I have done on mRNABERT up until now to reproduce the results in a documented way. 
 
 The objective is to fine-tune mRNABERT as before on one specific division of the datasets. I focus on fine-tuning the entire model because initial investigations showed that only tuning the prediction head would lead to low $R^2$ of 0.33. Full-finetuning gives much better results. 
+
+**_NOTE:_** When I say "tuning a prediction head" I'm talking about a one-layer MLP that goes from hidden_dims to num_labels directly. This is obviously not enough parameters to learn the relationship between sequence embedding and TE. Maybe a deeper MLP would be good enough compared to fine-tuning everything.
 
 I compare fine-tuning the model on different parts of the sequence to evaluate the contribution of different regions.
 
@@ -25,7 +29,7 @@ Then a script can be created for 10-fold CV that will be used consequently in al
 
 
 ## Status
-**In-Progress** 
+**COMPLETED** 
 - **finetuning runs at 1024 max model length**:
     - full sequence: finetune_HMEC_data (erroneously named), 3051456
     - 5'UTR only: utr5_1024, 3065496

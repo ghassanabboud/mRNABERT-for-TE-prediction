@@ -1,71 +1,53 @@
-# Experiment 01: reproduce initial finetuning results
- #### **Code version:** remove manual num_labels entry, make mean_TE main regression metric (fb0f5420cc8011a80a86fc9305c4a8c29054cfeb)
+# Experiment 02: CV ablation studies
+ #### **Code version:** boxplot formatting (89a2a2921ecdce3d9869bd1e6264fc330312a8e1)
 
 ## Results and Next Steps
 
-At 1024 max model length, including only the 5'UTR and the CDS yielded better results than the entire sequence at $R^ 2$ of 0.652 compared to 0.644 (marginal improvement). This means that the UTR 3' is not contributing much to the performance of the model. However, doing only the 5' UTR yields 0.476, meaning the cds is important. I did not try CDS only and will try it in the next big scale experiment.
+The results confirm the hypothesis that the interplay between 5'UTR and CDS is essential for model performance.the UTR5+CDS model significantely outperforms the UTR5-only model and the CDS-only model. There is no significant difference between the UTR5+CDS model and the full sequence model, which suggests that the 3'UTR does not add much information for the task. Increasing the model max length to 2044 significantly improves the performance of both UTR5+CDS and full sequence models, pushing performance to around 0.66 R² score. Even at 2044 max length, there is no signicant difference between the UTR5+CDS model and the full sequence model. mRNABERT's better performance at higher model length is thus due to its ability to look at longer 5'UTR and CDS sequences, not its ability to look at longer 3'UTR sequences.
 
-I decided not to test model max_length of 3066 after all because training would be too slow. We can inly accomodate a batch of 2 on the V100 global mem which would lead to training of 1 hour per epoch without evaluation. Instead, max_lenght of 2044 is a good compromise that will demonstrate my point: increased accuracy from more information about the CDS and not about inclusion of the 3'UTR. length of 2044 can accomodate batch sizes of 4 so 30 minuters per epoch without evaluation. That's without mentioning very noisy training that would result from batches of 2. 
+![box](../figures/r2_scores_comparison.png)
 
-For the next step I need 10-fold CV of these results to report more robustly. I will launch CV runs. 
 
 ## Objective 
 
-This first experiment will formalize all the experiments I have done on mRNABERT up until now to reproduce the results in a documented way. 
+After experimentally testing interesting setups in [experiment 01](01-reproduce_initial_finetuning.md), this experiment formalizes the results using 10-fold cross-validation. This will produce results to present in the report for demosntrating the importance of interplay of CDS and 5'UTR.The 10 folds are defined using RiboNN's original split included in their open excel data.
 
-The objective is to fine-tune mRNABERT as before on one specific division of the datasets. I focus on fine-tuning the entire model because initial investigations showed that only tuning the prediction head would lead to low $R^2$ of 0.33. Full-finetuning gives much better results. 
-
-I compare fine-tuning the model on different parts of the sequence to evaluate the contribution of different regions.
-
-First, UTR 5'only versus UTR 5' + CDS at 1024 max model length shows that the interaction between the 5'UTR and the CDS is essential. Then, Comparing UTR 5' + CDS at 3066 max model length versus full transcript at 3066 max model length shows whether the increased performance at 3066 is due to inclusion of the 3'UTR or just the ability to capture longer-range interactions between the 5'UTR between the 5'UTR and the CDS.
-
-An experiment on fine-tuning the model only on a window of 600 nt around the start codon will determine whether that context is enough.
-
-Then a script can be created for 10-fold CV that will be used consequently in all experiments. 
-
+The start codon window experiment showed that it matches the performance of the CDS model and higher than the 5' UTR model with less than half of the sequence length. This further confirms that the interplay between 5'UTR and CDS is essential for performance. 
 
 ## Status
-**In-Progress** 
-- **finetuning runs at 1024 max model length**:
-    - full sequence: finetune_HMEC_data (erroneously named), 3051456
-    - 5'UTR only: utr5_1024, 3065496
-    - 5'UTR + CDS: utr5_cds_1024, 3065497
-- **finetuning runs at 3066 max model length**:
-    - full sequence: 
-    - 5'UTR only: utr5_3066, 3052485
-    - 5'UTR + CDS: utr5_cds_3066, 3052584 
-- **finetuning runs around the start codon**:
-    - start codon window of 600 nt: start_codon_600nt, 3065504
+**COMPLETED** 
+- **job names**: `cv_cds_only_1024`, `cv_utr5_only_1024`, `cv_utr5_cds_1024`, `cv_utr5_cds_2044`, `cv_full_1024`, `cv_full_2044`, `cv_start_codon_window_400`
 ## Expected outcomes
-- _Deliverables_: form of the outputs, a results.csv file containing the runtimes and MLUPS, a table, a gif, etc.
-- _output directory_: ``
-- _decisions to take_: a graph comparing using different part of the sequence with different max model lengths. A statement about what is causing mRNABERT's superior performance.
+- _Deliverables_: results for all sequence modes, lengths and fold splits. a boxsplot comparing the results. 
+- _output directory_: `cv_*` in `outputs/`, boxplot at `figures/r2_scores_comparison.png`
+- _decisions to take_: final reporting of impact of different sequence parts on model performance in the report.
+
+
 ## Resources required
 
 1 GPU.
 
 ## Duration
-15.06.2026
+18.06.2026
 
 ## Experiment description
 
-Try to re-run the fine-tuning of mRNABERT on one division of the RiboNN dataset. Focus only on non-freezing. I run the following experiments:
+Each experiment consists of running 10 model trainings for 10-fold CV, this is done using slurm job arrays. I run the following experiments:
 - full sequence at 1024 max model length: 82.65% of sequences cannot fit the entire sequence into the model including 3' UTR
 - 5'UTR only at 1024 max model length: 1% of sequences cannot fit their entire 5' UTR into the model
 - 5'UTR + CDS at 1024 max model length: 25% of sequences cannot fit their entire 5' UTR and CDS into the model
 - start codon window of 600 nt at 400 max model length: I evaluate whether fine-tuning the model only focused on the start codon region can match the results. all of these truncated sequences can fit obviously
-- 5'UTR + CDS at 3066 max model length: all sequences can fit into the model
-- full sequence at 3066 max model length: 32.66% of sequences still cannot fit into the model because of long 3' UTRs
+- 5'UTR + CDS at 2044 max model length: 2.32% of sequences cannot fit their entire 5' UTR and CDS into the model
+- full sequence at 2044 max model length: 52.33% of sequences still cannot fit into the model because of long 3' UTRs.
 
 
+### 10-fold CV scripts
 
-Once validated, create a script for 10-fold CV.
-
-### script for finetuning full sequence at 1024 max model length
+all present in `jobs/cv_ablation_studies/`. careful with the `--learning_rate` parameter, increasing model max length to 2044 warrants a decrease in the batch size to 4 to fit in V100 memory. Hence, the learning rate should be decreased. A good heuristic is a linear decrease in learning rate with respect to batch size. 1e-5 is a bit less than that. Here is an example of script.
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=finetune_HMEC_data
+#SBATCH --job-name=cv_utr5_cds_1024
 #SBATCH --account=master
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -74,380 +56,45 @@ Once validated, create a script for 10-fold CV.
 #SBATCH --mem=16G
 #SBATCH --gres=gpu:1
 #SBATCH --time=06:00:00
-#SBATCH --output=outputs/reproduce_initial_finetuning/job_%j.out
+#SBATCH --array=0-9
+#SBATCH --output=outputs/cv_utr5_cds_1024/job_%A_%a.out
 
 eval "$(mamba shell hook --shell bash)"
 mamba activate mrnabert
-#python -c "import torch; print(f'GPU devices: {torch.cuda.device_count()}')"
 cd /scratch/izar/gabboud/mRNABERT
-
-
-# fine-tuning data
-export DATA_PATH=/scratch/izar/gabboud/mRNABERT/processed_data_RiboNN/full_val_fold_8_test_fold_9
 
 export WANDB_API_KEY=$(cat ~/.wandb_api_key)
 export WANDB_PROJECT=mRNABERT-finetuning
-export JOB_NAME=reproduce_initial_finetuning
 export WANDB_LOG_MODEL=true
 export WANDB_WATCH=false
-
-
-#max_steps is a hard cutoff that overrides the number of epochs, good for testing
-#that everything works before
-
-python regression_multilabel.py \
-    --data_path ${DATA_PATH} \
-    --run_name ${JOB_NAME}\
-    --model_max_length 1024 \
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 32 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate 8e-5 \
-    --weight_decay 0.01 \
-    --output_dir outputs/${JOB_NAME} \
-    --num_train_epochs 20 \
-    --save_steps 100 \
-    --eval_steps 100 \
-    --warmup_steps 150 \
-    --logging_steps 10 \
-    --report_to wandb \
-    --freeze_base false \
-    --early_stopping_patience 20 \
-    --early_stopping_threshold 0.001 \
-    --overwrite_output_dir true
-```
-
-### script for finetuning utr5 only at 1024 max model length
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=utr5_1024
-#SBATCH --account=master
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --partition=gpu
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:1
-#SBATCH --time=06:00:00
-#SBATCH --output=outputs/utr5_only_1024/job_%j.out
-
-eval "$(mamba shell hook --shell bash)"
-mamba activate mrnabert
-#python -c "import torch; print(f'GPU devices: {torch.cuda.device_count()}')"
-cd /scratch/izar/gabboud/mRNABERT
-
-
-# fine-tuning data
-export DATA_PATH=/scratch/izar/gabboud/mRNABERT/processed_data_RiboNN/utr5_only_val_fold_8_test_fold_9
-
-export WANDB_API_KEY=$(cat ~/.wandb_api_key)
-export WANDB_PROJECT=mRNABERT-finetuning
-export JOB_NAME=utr5_only_1024
-export WANDB_LOG_MODEL=true
-export WANDB_WATCH=false
-
-
-#max_steps is a hard cutoff that overrides the number of epochs, good for testing
-#that everything works before
-
-python regression_multilabel.py \
-    --data_path ${DATA_PATH} \
-    --run_name ${JOB_NAME}\
-    --model_max_length 1024 \
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 32 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate 8e-5 \
-    --weight_decay 0.01 \
-    --output_dir outputs/${JOB_NAME} \
-    --num_train_epochs 20 \
-    --save_steps 100 \
-    --eval_steps 100 \
-    --warmup_steps 150 \
-    --logging_steps 10 \
-    --report_to wandb \
-    --freeze_base false \
-    --early_stopping_patience 20 \
-    --early_stopping_threshold 0.001 \
-    --overwrite_output_dir true
-```
-
-### script for finetuning utr5 + cds at 1024 max model length
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=utr5_cds_1024
-#SBATCH --account=master
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --partition=gpu
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:1
-#SBATCH --time=06:00:00
-#SBATCH --output=outputs/utr5_cds_1024/job_%j.out
-
-eval "$(mamba shell hook --shell bash)"
-mamba activate mrnabert
-#python -c "import torch; print(f'GPU devices: {torch.cuda.device_count()}')"
-cd /scratch/izar/gabboud/mRNABERT
-
-
-# fine-tuning data
-export DATA_PATH=/scratch/izar/gabboud/mRNABERT/processed_data_RiboNN/utr5_cds_val_fold_8_test_fold_9
-
-export WANDB_API_KEY=$(cat ~/.wandb_api_key)
-export WANDB_PROJECT=mRNABERT-finetuning
-export JOB_NAME=utr5_cds_1024
-export WANDB_LOG_MODEL=true
-export WANDB_WATCH=false
-
-
-#max_steps is a hard cutoff that overrides the number of epochs, good for testing
-#that everything works before
-
-python regression_multilabel.py \
-    --data_path ${DATA_PATH} \
-    --run_name ${JOB_NAME}\
-    --model_max_length 1024 \
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 32 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate 8e-5 \
-    --weight_decay 0.01 \
-    --output_dir outputs/${JOB_NAME} \
-    --num_train_epochs 20 \
-    --save_steps 100 \
-    --eval_steps 100 \
-    --warmup_steps 150 \
-    --logging_steps 10 \
-    --report_to wandb \
-    --freeze_base false \
-    --early_stopping_patience 20 \
-    --early_stopping_threshold 0.001 \
-    --overwrite_output_dir true
-```
-
-### script for finetuning utr5 + cds at 3066 max model length
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=utr5_cds_3066
-#SBATCH --account=master
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --partition=gpu
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:1
-#SBATCH --time=06:00:00
-#SBATCH --output=outputs/utr5_cds_3066/job_%j.out
-
-eval "$(mamba shell hook --shell bash)"
-mamba activate mrnabert
-#python -c "import torch; print(f'GPU devices: {torch.cuda.device_count()}')"
-cd /scratch/izar/gabboud/mRNABERT
-
-
-# fine-tuning data
-export DATA_PATH=/scratch/izar/gabboud/mRNABERT/processed_data_RiboNN/utr5_cds_val_fold_8_test_fold_9
-
-export WANDB_API_KEY=$(cat ~/.wandb_api_key)
-export WANDB_PROJECT=mRNABERT-finetuning
-export JOB_NAME=utr5_cds_3066
-export WANDB_LOG_MODEL=true
-export WANDB_WATCH=false
-
-
-#max_steps is a hard cutoff that overrides the number of epochs, good for testing
-#that everything works before
-
-python regression_multilabel.py \
-    --data_path ${DATA_PATH} \
-    --run_name ${JOB_NAME}\
-    --model_max_length 3066 \
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 32 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate 8e-5 \
-    --weight_decay 0.01 \
-    --output_dir outputs/${JOB_NAME} \
-    --num_train_epochs 1 \
-    --save_steps 100 \
-    --eval_steps 100 \
-    --warmup_steps 150 \
-    --logging_steps 10 \
-    --report_to wandb \
-    --freeze_base false \
-    --early_stopping_patience 20 \
-    --early_stopping_threshold 0.001 \
-    --overwrite_output_dir true
-
-```
-
-### script for finetuning on 600 nt window around start codon at 400 max model length
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=start_codon_600nt
-#SBATCH --account=master
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --partition=gpu
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:1
-#SBATCH --time=06:00:00
-#SBATCH --output=outputs/start_codon_600nt/job_%j.out
-
-eval "$(mamba shell hook --shell bash)"
-mamba activate mrnabert
-#python -c "import torch; print(f'GPU devices: {torch.cuda.device_count()}')"
-cd /scratch/izar/gabboud/mRNABERT
-
-
-# fine-tuning data
-export DATA_PATH=/scratch/izar/gabboud/mRNABERT/processed_data_RiboNN/start_codon_window_600nt_val_fold_8_test_fold_9
-
-export WANDB_API_KEY=$(cat ~/.wandb_api_key)
-export WANDB_PROJECT=mRNABERT-finetuning
-export JOB_NAME=start_codon_600nt
-export WANDB_LOG_MODEL=true
-export WANDB_WATCH=false
-
-
-#max_steps is a hard cutoff that overrides the number of epochs, good for testing
-#that everything works before
-
-python regression_multilabel.py \
-    --data_path ${DATA_PATH} \
-    --run_name ${JOB_NAME}\
-    --model_max_length 400 \
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 32 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate 8e-5 \
-    --weight_decay 0.01 \
-    --output_dir outputs/${JOB_NAME} \
-    --num_train_epochs 20 \
-    --save_steps 100 \
-    --eval_steps 100 \
-    --warmup_steps 150 \
-    --logging_steps 10 \
-    --report_to wandb \
-    --freeze_base false \
-    --early_stopping_patience 20 \
-    --early_stopping_threshold 0.001 \
-    --overwrite_output_dir true
-```
-### script for finetuning full sequence at 3066 max model length
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=full_3066
-#SBATCH --account=master
-#SBATCH --nodes=1
-#SBATCH --partition=gpu
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:2
-#SBATCH --time=12:00:00
-#SBATCH --output=outputs/full_3066/job_%j.out
-
-eval "$(mamba shell hook --shell bash)"
-mamba activate mrnabert
-#python -c "import torch; print(f'GPU devices: {torch.cuda.device_count()}')"
-cd /scratch/izar/gabboud/mRNABERT
-
-
-# fine-tuning data
-export DATA_PATH=/scratch/izar/gabboud/mRNABERT/processed_data_RiboNN/full_val_fold_8_test_fold_9
 export HF_HOME=/scratch/izar/gabboud/.cache/huggingface
 
-export WANDB_API_KEY=$(cat ~/.wandb_api_key)
-export WANDB_PROJECT=mRNABERT-finetuning
-export JOB_NAME=full_3066
-export WANDB_LOG_MODEL=true
-export WANDB_WATCH=false
+BASE_DATA_PATH=/scratch/izar/gabboud/mRNABERT/processed_data_RiboNN/cv_utr5_cds
+OUTPUT_BASE=outputs/cv_utr5_cds_1024
 
+# Map array index to fold directory (sorted order)
+FOLD_DIRS=($(ls -d ${BASE_DATA_PATH}/val_fold_* | sort))
+FOLD_DIR=${FOLD_DIRS[$SLURM_ARRAY_TASK_ID]}
+FOLD_NAME=$(basename ${FOLD_DIR})
 
-#max_steps is a hard cutoff that overrides the number of epochs, good for testing
-#that everything works before
+VAL_FOLD=$(echo ${FOLD_NAME} | sed 's/val_fold_\([0-9]*\)_test_fold_\([0-9]*\)/\1/')
+TEST_FOLD=$(echo ${FOLD_NAME} | sed 's/val_fold_\([0-9]*\)_test_fold_\([0-9]*\)/\2/')
 
-echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-echo "SLURM_GPUS_ON_NODE=$SLURM_GPUS_ON_NODE"
+RUN_NAME=cv_utr5_cds_1024_${FOLD_NAME}
 
+mkdir -p ${OUTPUT_BASE}/${FOLD_NAME}
 
-torchrun --nproc_per_node=2 regression_multilabel.py \
-    --data_path ${DATA_PATH} \
-    --run_name ${JOB_NAME}\
-    --model_max_length 3066 \
-    --per_device_train_batch_size 2 \
-    --per_device_eval_batch_size 4 \
+python regression_multilabel.py \
+    --data_path ${FOLD_DIR} \
+    --run_name ${RUN_NAME} \
+    --model_max_length 1024 \
+    --per_device_train_batch_size 16 \
+    --per_device_eval_batch_size 32 \
     --gradient_accumulation_steps 1 \
     --learning_rate 8e-5 \
     --weight_decay 0.01 \
-    --output_dir outputs/${JOB_NAME} \
-    --num_train_epochs 1 \
-    --save_steps 100 \
-    --eval_steps 100 \
-    --warmup_steps 150 \
-    --logging_steps 10 \
-    --report_to wandb \
-    --freeze_base false \
-    --early_stopping_patience 20 \
-    --early_stopping_threshold 0.001 \
-    --overwrite_output_dir true
-```
-
-### script for finetuning 5' UTR + CDS at 3066 max model length
-
-```bash
-#!/bin/bash
-#SBATCH --job-name=utr5_cds_3066
-#SBATCH --account=master
-#SBATCH --nodes=1
-#SBATCH --partition=gpu
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:2
-#SBATCH --time=12:00:00
-#SBATCH --output=outputs/utr5_cds_3066/job_%j.out
-
-eval "$(mamba shell hook --shell bash)"
-mamba activate mrnabert
-#python -c "import torch; print(f'GPU devices: {torch.cuda.device_count()}')"
-cd /scratch/izar/gabboud/mRNABERT
-
-
-# fine-tuning data
-export DATA_PATH=/scratch/izar/gabboud/mRNABERT/processed_data_RiboNN/utr5_cds_val_fold_8_test_fold_9
-export HF_HOME=/scratch/izar/gabboud/.cache/huggingface
-
-export WANDB_API_KEY=$(cat ~/.wandb_api_key)
-export WANDB_PROJECT=mRNABERT-finetuning
-export JOB_NAME=utr5_cds_3066
-export WANDB_LOG_MODEL=true
-export WANDB_WATCH=false
-
-
-#max_steps is a hard cutoff that overrides the number of epochs, good for testing
-#that everything works before
-
-echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-echo "SLURM_GPUS_ON_NODE=$SLURM_GPUS_ON_NODE"
-
-
-torchrun --nproc_per_node=2 regression_multilabel.py \
-    --data_path ${DATA_PATH} \
-    --run_name ${JOB_NAME}\
-    --model_max_length 3066 \
-    --per_device_train_batch_size 2 \
-    --per_device_eval_batch_size 4 \
-    --gradient_accumulation_steps 1 \
-    --learning_rate 8e-5 \
-    --weight_decay 0.01 \
-    --output_dir outputs/${JOB_NAME} \
-    --num_train_epochs 1 \
+    --output_dir ${OUTPUT_BASE}/${FOLD_NAME} \
+    --num_train_epochs 20 \
     --save_steps 100 \
     --eval_steps 100 \
     --warmup_steps 150 \
@@ -458,7 +105,26 @@ torchrun --nproc_per_node=2 regression_multilabel.py \
     --early_stopping_threshold 0.001 \
     --overwrite_output_dir true
 
+# After training, collect results if all 10 folds are done
+RESULTS_COUNT=$(find ${OUTPUT_BASE} -name "test_results.json" | wc -l)
+if [ "${RESULTS_COUNT}" -eq 1 ]; then
+    echo "test_fold,val_fold,eval_r2_mean_TE" > ${OUTPUT_BASE}/cv_results.csv
+    for DIR in $(ls -d ${BASE_DATA_PATH}/val_fold_* | sort); do
+        FNAME=$(basename ${DIR})
+        VF=$(echo ${FNAME} | sed 's/val_fold_\([0-9]*\)_test_fold_\([0-9]*\)/\1/')
+        TF=$(echo ${FNAME} | sed 's/val_fold_\([0-9]*\)_test_fold_\([0-9]*\)/\2/')
+        JSON=$(find ${OUTPUT_BASE}/${FNAME} -name "test_results.json" | head -1)
+        if [ -f "${JSON}" ]; then
+            R2=$(python -c "import json; d=json.load(open('${JSON}')); print(d.get('eval_r2_mean_TE', 'NA'))")
+            echo "${TF},${VF},${R2}" >> ${OUTPUT_BASE}/cv_results.csv
+        else
+            echo "${TF},${VF},NA" >> ${OUTPUT_BASE}/cv_results.csv
+        fi
+    done
+    echo "Results written to ${OUTPUT_BASE}/cv_results.csv"
+fi
 ```
+
 ## Links and references
 TO-DO: list here publications, web pages, etc. that contain information relevant to the experiment. 
 
