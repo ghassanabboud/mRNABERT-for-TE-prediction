@@ -14,6 +14,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence
 
+import numpy as np
+
 import torch
 import transformers
 from transformers import (
@@ -49,12 +51,18 @@ class BiasedModelArguments:
         default="full",
         metadata={
             "help": (
-                "Watson-Crick bias mode: "
+                "Bias mode: "
                 "'no_bias' — plain attention, no prior injected; "
                 "'utr_only' — WC bias only for single-nucleotide (UTR) tokens, codons get 0; "
-                "'full' — WC bias for both UTR and CDS (codon) tokens."
+                "'full' — WC bias for both UTR and CDS (codon) tokens; "
+                "'linearfold' — secondary-structure bias from pre-computed LinearFold pairs "
+                "(requires --linearfold_bias_file)."
             )
         },
+    )
+    linearfold_bias_file: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to .npz of LinearFold token-pair scores (all splits combined). Required when --bias linearfold."},
     )
     dropout: float = field(default=0.1, metadata={"help": "Dropout for attention and classifier."})
     base_model_name: str = field(default="YYLY66/mRNABERT", metadata={"help": "HF model ID for the backbone."})
@@ -74,7 +82,7 @@ def build_wc_lookup(tokenizer, utr_only: bool = False) -> torch.Tensor:
     Special and padding tokens contribute 0.
     """
     vocab = tokenizer.get_vocab()
-    V = tokenizer.vocab_size
+    V = len(tokenizer)  # includes special tokens (CLS, SEP, PAD) whose IDs may exceed vocab_size
     nuc_ids = {ch: vocab[ch] for ch in "ATCGN"}
 
     nuc_wc = torch.zeros(V, V)
@@ -131,6 +139,69 @@ class BiasedDataCollator(DataCollatorForSupervisedDataset):
 
 
 # ---------------------------------------------------------------------------
+# Dataset subclass that exposes tx_id — needed by LinearFoldDataCollator
+# ---------------------------------------------------------------------------
+
+class TxIdSupervisedDataset(SupervisedDataset):
+    """SupervisedDataset that also returns tx_id in each item."""
+
+    def __getitem__(self, i) -> Dict:
+        item = super().__getitem__(i)
+        tx_id_idx = self.metadata_names.index("tx_id")
+        item["tx_id"] = self.metadata[i][tx_id_idx]
+        return item
+
+
+# ---------------------------------------------------------------------------
+# Collator: builds LinearFold secondary-structure bias from pre-computed pairs
+# ---------------------------------------------------------------------------
+
+class LinearFoldDataCollator(DataCollatorForSupervisedDataset):
+    """
+    Loads a pre-computed .npz of token-level pair arrays (produced by
+    generate_linearfold_bias.py) and builds a (B, 1, L, L) float32 bias
+    tensor for each batch.
+
+    Each entry in the NPZ is keyed by tx_id and stores a (K, 3) int32 array
+    with columns [t_i, t_j, count] (0-indexed, CLS not included).
+    The collator sets bias[b, 0, t_i+1, t_j+1] = count (symmetric).
+    """
+
+    def __init__(self, tokenizer, bias_npz_path: str):
+        super().__init__(tokenizer=tokenizer)
+        archive = np.load(bias_npz_path, allow_pickle=False)
+        self.pairs_lookup: Dict[str, np.ndarray] = dict(archive)
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        # Pop tx_ids before standard collation — strings cannot be batched
+        tx_ids = [inst.pop("tx_id") for inst in instances]
+        batch = super().__call__(instances)
+
+        B, L = batch["input_ids"].shape
+        bio_prior = torch.zeros(B, 1, L, L, dtype=torch.float32)
+
+        for b, tx_id in enumerate(tx_ids):
+            pairs = self.pairs_lookup.get(tx_id)
+            if pairs is None:
+                raise KeyError(
+                    f"tx_id '{tx_id}' not found in LinearFold bias NPZ. "
+                    "Re-run generate_linearfold_bias.py to include all sequences."
+                )
+            if len(pairs) == 0:
+                continue
+            ti = pairs[:, 0] + 1  # +1 for CLS token at position 0
+            tj = pairs[:, 1] + 1
+            counts = pairs[:, 2].astype(np.float32)
+            within = (ti < L) & (tj < L)
+            ti, tj, counts = ti[within], tj[within], counts[within]
+            bio_prior[b, 0, ti, tj] = torch.from_numpy(counts)
+            bio_prior[b, 0, tj, ti] = torch.from_numpy(counts)
+
+        batch["bio_prior"] = bio_prior
+        return batch
+
+
+# ---------------------------------------------------------------------------
 # Trainer extension: extracts bio_prior from inputs before model call
 # ---------------------------------------------------------------------------
 
@@ -183,19 +254,24 @@ def train():
         trust_remote_code=True,
     )
 
-    # --- Watson-Crick lookup (built once from vocab) ---
-    if model_args.bias not in ("no_bias", "utr_only", "full"):
-        raise ValueError(f"--bias must be one of 'no_bias', 'utr_only', 'full'; got '{model_args.bias}'")
-    if model_args.bias == "no_bias":
-        wc_lookup = None
-    else:
-        wc_lookup = build_wc_lookup(tokenizer, utr_only=(model_args.bias == "utr_only"))
+    # --- Bias mode validation ---
+    valid_bias_modes = ("no_bias", "utr_only", "full", "linearfold")
+    if model_args.bias not in valid_bias_modes:
+        raise ValueError(f"--bias must be one of {valid_bias_modes}; got '{model_args.bias}'")
+    if model_args.bias == "linearfold" and not model_args.linearfold_bias_file:
+        raise ValueError("--bias linearfold requires --linearfold_bias_file to be set.")
 
     # --- Datasets ---
-    make_ds = lambda split: SupervisedDataset(
-        data_path=os.path.join(data_args.data_path, f"{split}.csv"),
-        tokenizer=tokenizer,
-    )
+    if model_args.bias == "linearfold":
+        make_ds = lambda split: TxIdSupervisedDataset(
+            data_path=os.path.join(data_args.data_path, f"{split}.csv"),
+            tokenizer=tokenizer,
+        )
+    else:
+        make_ds = lambda split: SupervisedDataset(
+            data_path=os.path.join(data_args.data_path, f"{split}.csv"),
+            tokenizer=tokenizer,
+        )
     train_dataset = make_ds("train")
     val_dataset = make_ds("dev")
     test_dataset = make_ds("test")
@@ -238,7 +314,16 @@ def train():
         f"frozen: {counts['frozen']:,}  |  total: {counts['total']:,}"
     )
 
-    data_collator = BiasedDataCollator(tokenizer=tokenizer, wc_lookup=wc_lookup)
+    if model_args.bias == "linearfold":
+        data_collator = LinearFoldDataCollator(
+            tokenizer=tokenizer,
+            bias_npz_path=model_args.linearfold_bias_file,
+        )
+    else:
+        wc_lookup = None if model_args.bias == "no_bias" else build_wc_lookup(
+            tokenizer, utr_only=(model_args.bias == "utr_only")
+        )
+        data_collator = BiasedDataCollator(tokenizer=tokenizer, wc_lookup=wc_lookup)
 
     label_names = train_dataset.label_names
 
@@ -264,6 +349,11 @@ def train():
             )
         ],
     )
+
+    # tx_id is not in forward() so Trainer strips it before the collator runs;
+    # the LinearFold collator needs it to look up base-pair biases
+    if model_args.bias == "linearfold":
+        object.__setattr__(trainer.args, "remove_unused_columns", False)
 
     trainer.train()
 
