@@ -12,8 +12,8 @@ We will now implement a version of the biased model that uses LinearFold predict
 
 
 ## Status
-**IN PROGRESS** 
-- **job names**: FILL
+**COMPLETED** 
+- **job names**: `biased_head_wc_full_1024_frozen_1_layer_lf_bias`, `biased_head_wc_full_1024_frozen_2_layer_lf_bias`, `biased_head_wc_full_1024_frozen_3_layer_lf_bias`
 
 ## Expected outcomes
 - _Deliverables_: supplement the barplot with the LinearFold bias model results.

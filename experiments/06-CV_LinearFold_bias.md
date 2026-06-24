@@ -15,8 +15,8 @@ Compare the performance of the LinearFold bias model with No Bias model and Wats
 
 
 ## Status
-**IN PROGRESS** 
-- **job names**: FILL
+**COMPLETED** 
+- **job names**: `cv_biased_full_1024_frozen_1_layer_lf_bias`, `cv_biased_full_1024_frozen_2_layer_lf_bias`, `cv_biased_full_1024_frozen_3_layer_lf_bias`
 
 ## Expected outcomes
 - _Deliverables_: supplement the final cv boxplot with the LinearFold bias model results.
