@@ -119,5 +119,4 @@ python train_biased_head.py \
 ```
 
 ## Links and references
-TO-DO: list here publications, web pages, etc. that contain information relevant to the experiment. 
-
+This idea is taken from Weijie et al. 2025, ["ERNIE-RNA: an RNA language model with structure-enhanced representations"](https://www.nature.com/articles/s41467-025-64972-0). They used this for pre-training and showed that it allowed to learn secondary structure information that their base model didn't.

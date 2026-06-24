@@ -1,5 +1,5 @@
 # Experiment 05: LinearFold bias model
- #### **Code version:** initial experiments on bias model variations barplot(fa09a55f5aa1a5d89f1a0ac21cfd2f0eb0be292f)
+ #### **Code version:** integrate linearfold bias results(76aa91da7140141b3e322527227ebac90f691e04)
 
 ## Results and Next Steps
 
