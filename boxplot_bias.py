@@ -9,22 +9,26 @@ plt.rcParams.update({'font.size': 12})
 paths = [
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_1_layer_no_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_1_layer_wc_bias",
+    "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_1_layer_lf_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_2_layer_no_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_2_layer_wc_bias",
+    "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_2_layer_lf_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_3_layer_no_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_3_layer_wc_bias",
+    "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_3_layer_lf_bias",
+
 ]
 
 # x-axis grouping
-n_layers_list = [1, 1, 2, 2, 3, 3]
+n_layers_list = [1, 1, 1, 2, 2, 2, 3, 3, 3]
 
 # hue grouping
-bias_list = ["No Bias", "Watson-Crick Bias",
-             "No Bias", "Watson-Crick Bias",
-             "No Bias", "Watson-Crick Bias"]
+bias_list = ["No Bias", "Watson-Crick Bias", "LinearFold Bias",
+             "No Bias", "Watson-Crick Bias", "LinearFold Bias",
+             "No Bias", "Watson-Crick Bias", "LinearFold Bias"]
 
 order     = [1, 2, 3]
-hue_order = ["No Bias", "Watson-Crick Bias"]
+hue_order = ["No Bias", "Watson-Crick Bias", "LinearFold Bias"]
 
 df_list = []
 for path, n_layers, bias in zip(paths, n_layers_list, bias_list):
@@ -93,7 +97,7 @@ def group_vals(n_layers, bias):
 
 def draw_sig_bar(ax, x1, x2, y, label, h=0.005):
     ax.plot([x1, x1, x2, x2], [y, y + h, y + h, y], color="black", lw=1.2)
-    ax.text((x1 + x2) / 2, y + h + 0.003, label,
+    ax.text((x1 + x2) / 2, y + h + 0.002, label,
             ha="center", va="bottom", fontsize=10)
 
 
@@ -104,23 +108,27 @@ pairs = [
     (1, "No Bias", 1, "Watson-Crick Bias", 0),
     (2, "No Bias", 2, "Watson-Crick Bias", 0),
     (3, "No Bias", 3, "Watson-Crick Bias", 0),
-    (3, "No Bias", 2, "No Bias", 1),
-    (1, "No Bias", 2, "No Bias", 1),
+    (1, "No Bias", 1, "LinearFold Bias", 1),
+    (2, "No Bias", 2, "LinearFold Bias", 1),
+    (3, "No Bias", 3, "LinearFold Bias", 1),
+    (3, "No Bias", 2, "No Bias", 2),
+    (1, "No Bias", 2, "No Bias", 2),
 ]
 
 y_data_max = df["eval_r2_mean_TE"].max()
 y_start    = y_data_max + 0.01
-level_step = 0.02
+level_step = 0.01
 
 for n1, b1, n2, b2, level in pairs:
     x1 = box_x(n1, b1)
     x2 = box_x(n2, b2)
     y  = y_start + level * level_step
-    draw_sig_bar(ax, x1, x2, y, sig_label(group_vals(n1, b1), group_vals(n2, b2)))
+    draw_sig_bar(ax, x1, x2, y, sig_label(group_vals(n1, b1), group_vals(n2, b2)), h=0.002)
 
-ax.set_ylim(top=y_start + 2 * level_step + 0.1)
+ax.set_ylim(top=y_start + 2 * level_step + 0.02, bottom=0.54)
 
 plt.xlabel("Number of Layers")
 plt.ylabel("R² Score")
+ax.legend(fontsize=12)
 plt.tight_layout()
 plt.savefig("figures/r2_scores_cv_bias.png")
