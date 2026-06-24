@@ -80,23 +80,6 @@ def nadeau_bengio_ttest(v1, v2):
     return p
 
 
-def sig_label(vals1, vals2):
-    """Nadeau-Bengio corrected t-test; returns '**', '*', or 'x'."""
-    mask = ~(np.isnan(vals1) | np.isnan(vals2))
-    v1, v2 = vals1[mask], vals2[mask]
-    if len(v1) < 2:
-        return "x (p=N/A)"
-    p = nadeau_bengio_ttest(v1, v2)
-    if p <= 0.01:
-        label = "**"
-    elif p <= 0.05:
-        label = "*"
-    else:
-        label = "x"
-    #return label + f" (p={p:.3g})"
-    return label
-
-
 def group_vals(mode, length):
     """R² values per test_fold, sorted so pairing is consistent."""
     return (df[(df["mode"] == mode) & (df["Maximum Sequence Length"] == length)]
@@ -125,17 +108,39 @@ pairs = [
 
 ]
 
+# Collect raw p-values for all pairs, then apply Bonferroni correction.
+n_tests = len(pairs)
+raw_pvals = []
+for m1, l1, m2, l2, _ in pairs:
+    v1, v2 = group_vals(m1, l1), group_vals(m2, l2)
+    mask = ~(np.isnan(v1) | np.isnan(v2))
+    v1, v2 = v1[mask], v2[mask]
+    raw_pvals.append(nadeau_bengio_ttest(v1, v2) if len(v1) >= 2 else np.nan)
+
+corrected_pvals = [min(p * n_tests, 1.0) if not np.isnan(p) else np.nan
+                   for p in raw_pvals]
+
+
+def sig_label(p):
+    if np.isnan(p):
+        return "x (p=N/A)"
+    if p <= 0.01:
+        return "**"
+    if p <= 0.05:
+        return "*"
+    return "x"
+
+
 relevant_mask = df["mode"].isin(["UTR5 + CDS", "UTR5 + CDS + UTR3"])
 y_data_max = df[relevant_mask]["eval_r2_mean_TE"].max()
 y_start = y_data_max + 0.01
 level_step = 0.02
 
-for m1, l1, m2, l2, level in pairs:
+for (m1, l1, m2, l2, level), p_corr in zip(pairs, corrected_pvals):
     x1 = box_x(m1, l1)
     x2 = box_x(m2, l2)
     y = y_start + level * level_step
-    label = sig_label(group_vals(m1, l1), group_vals(m2, l2))
-    draw_sig_bar(ax, x1, x2, y, label)
+    draw_sig_bar(ax, x1, x2, y, sig_label(p_corr))
 
 # Expand y-axis to accommodate the top-most bar + label
 ax.set_ylim(top=y_start + 2 * level_step + 0.1)

@@ -75,20 +75,6 @@ def nadeau_bengio_ttest(v1, v2):
     return p
 
 
-def sig_label(vals1, vals2):
-    """Nadeau-Bengio corrected t-test; returns '**', '*', or 'x'."""
-    mask = ~(np.isnan(vals1) | np.isnan(vals2))
-    v1, v2 = vals1[mask], vals2[mask]
-    if len(v1) < 2:
-        return "x (p=N/A)"
-    p = nadeau_bengio_ttest(v1, v2)
-    if p <= 0.01:
-        return "**"
-    elif p <= 0.05:
-        return "*"
-    return "x"
-
-
 def group_vals(n_layers, bias):
     return (df[(df["Number of Layers"] == n_layers) & (df["Bias Type"] == bias)]
             .sort_values("test_fold")["eval_r2_mean_TE"]
@@ -115,15 +101,38 @@ pairs = [
     (1, "No Bias", 2, "No Bias", 2),
 ]
 
+# Collect raw p-values for all pairs, then apply Bonferroni correction.
+n_tests = len(pairs)
+raw_pvals = []
+for n1, b1, n2, b2, _ in pairs:
+    v1, v2 = group_vals(n1, b1), group_vals(n2, b2)
+    mask = ~(np.isnan(v1) | np.isnan(v2))
+    v1, v2 = v1[mask], v2[mask]
+    raw_pvals.append(nadeau_bengio_ttest(v1, v2) if len(v1) >= 2 else np.nan)
+
+corrected_pvals = [min(p * n_tests, 1.0) if not np.isnan(p) else np.nan
+                   for p in raw_pvals]
+
+
+def sig_label(p):
+    if np.isnan(p):
+        return "x (p=N/A)"
+    if p <= 0.01:
+        return "**"
+    if p <= 0.05:
+        return "*"
+    return "x"
+
+
 y_data_max = df["eval_r2_mean_TE"].max()
 y_start    = y_data_max + 0.01
 level_step = 0.01
 
-for n1, b1, n2, b2, level in pairs:
+for (n1, b1, n2, b2, level), p_corr in zip(pairs, corrected_pvals):
     x1 = box_x(n1, b1)
     x2 = box_x(n2, b2)
     y  = y_start + level * level_step
-    draw_sig_bar(ax, x1, x2, y, sig_label(group_vals(n1, b1), group_vals(n2, b2)), h=0.002)
+    draw_sig_bar(ax, x1, x2, y, sig_label(p_corr), h=0.002)
 
 ax.set_ylim(top=y_start + 2 * level_step + 0.02, bottom=0.54)
 
