@@ -7,8 +7,7 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 
 
 class BioPriorAttention(nn.Module):
-    """
-    Multi-head self-attention with an additive biological prior bias.
+    """Multi-head self-attention with an additive biological prior bias.
 
     The prior shifts raw attention logits before softmax:
         scores[b, h, i, j] = (Q_i · K_j) / sqrt(d_k) + bias[b, h, i, j]
@@ -61,22 +60,13 @@ class BioPriorAttention(nn.Module):
 
 
 class mRNABERTWithBioPriorHead(nn.Module):
-    """
-    Frozen mRNABERT backbone + one trainable bio-prior attention layer + classifier.
+    """Frozen mRNABERT backbone + trainable bio-prior attention layers + classifier.
 
-    Architecture (forward pass):
+    Architecture:
         1. BERT backbone  →  last_hidden_state  (B, L, 768)
         2. for each of num_bio_layers:
                LayerNorm(hidden + BioPriorAttention(hidden, ext_mask, bias))
         3. CLS-pool  →  dropout  →  Linear  →  logits  (B, num_labels)
-
-    Args:
-        base_model:     AutoModel backbone
-        hidden_size:    BERT hidden dimension (768 for mRNABERT)
-        num_heads:      attention heads per bio-prior layer
-        num_labels:     regression/classification outputs
-        dropout:        dropout rate for attention and classifier
-        num_bio_layers: number of stacked BioPriorAttention + LayerNorm blocks
     """
 
     def __init__(
@@ -114,9 +104,9 @@ class mRNABERTWithBioPriorHead(nn.Module):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        bio_prior_bias: Optional[torch.Tensor] = None,  # (B, 1|nh, L, L) for Option A
-        labels: Optional[torch.Tensor] = None,           # unused here; loss in trainer
-        token_type_ids: Optional[torch.Tensor] = None,   # accepted but forwarded only if needed
+        bio_prior_bias: Optional[torch.Tensor] = None,  # (B, 1|nh, L, L)
+        labels: Optional[torch.Tensor] = None,           # unused; loss computed in trainer
+        token_type_ids: Optional[torch.Tensor] = None,
     ) -> SequenceClassifierOutput:
         backbone_frozen = not next(self.bert.parameters()).requires_grad
         ctx = torch.no_grad() if backbone_frozen else contextlib.nullcontext()
@@ -124,9 +114,7 @@ class mRNABERTWithBioPriorHead(nn.Module):
             bert_kwargs = dict(input_ids=input_ids, attention_mask=attention_mask)
             if token_type_ids is not None:
                 bert_kwargs["token_type_ids"] = token_type_ids
-            hidden = self.bert(**bert_kwargs)[0]  # (B, L, H) — works for tuple or ModelOutput
-
-        B, L, _ = hidden.shape
+            hidden = self.bert(**bert_kwargs)[0]  # (B, L, H)
 
         # Additive mask: 0 for real tokens, large negative for padding
         ext_mask = (1.0 - attention_mask[:, None, None, :].float()) * -1e4  # (B,1,1,L)

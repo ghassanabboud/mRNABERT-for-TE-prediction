@@ -24,6 +24,23 @@ Novel contributions:
 
 fill
 
+
+## Testing
+
+A test suite developed using [pytest](https://docs.pytest.org/en/7.4.x/) verifies the Watson-Crick and LinearFold bias calculations that are the focus of this project. It also verified the computation of metrics as care needs to be taken to handle `NaN` entries in the RiboNN dataset. To run the tests, run the following from the root of the repository:
+
+```bash
+pytest tests/
+```
+
+The `generate_linearfold_bias.py` requires that a valid LinearFold binary be installed and its path passed to the script. Four tests in the suite verify that the binary provided yields the expected outputs. While skipped by default, these tests can be run through the following command:
+
+```bash
+pytest tests/ --linearfold /your/path/to/linearfold/executable
+```
+
+The test suite does
+
 ## Create Environment with Conda
 
     # create and activate a virtual python environment
@@ -51,6 +68,8 @@ python preprocess_RiboNN_data.py --data_path human_RiboNN.xlsx --output_dir ./pr
 ```
 
 sequence_mode is one of `full`, `cds_only`, `utr5_only`, `utr3_only`, `utr5_cds` to conduct ablation studies on different regions of mRNA. The script will generate three CSV files for training, validation, and testing, each containing the sequence and its corresponding translation efficiency labels. You can specify different test and validation folds to directly compare with RiboNN's original results., keeping in mind that folds in the dataset are indexed from 0 to 9.
+
+
 
 ## Pre-trained Model and Datasets
 
