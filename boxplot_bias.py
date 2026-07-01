@@ -8,13 +8,13 @@ plt.rcParams.update({'font.size': 12})
 
 paths = [
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_1_layer_no_bias",
-    "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_1_layer_wc_bias",
+    "/scratch/izar/gabboud/mRNABERT/outputs/cv_FIXED_biased_full_1024_frozen_1_layer_wc_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_1_layer_lf_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_2_layer_no_bias",
-    "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_2_layer_wc_bias",
+    "/scratch/izar/gabboud/mRNABERT/outputs/cv_FIXED_biased_full_1024_frozen_2_layer_wc_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_2_layer_lf_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_3_layer_no_bias",
-    "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_3_layer_wc_bias",
+    "/scratch/izar/gabboud/mRNABERT/outputs/cv_FIXED_biased_full_1024_frozen_3_layer_wc_bias",
     "/scratch/izar/gabboud/mRNABERT/outputs/cv_biased_full_1024_frozen_3_layer_lf_bias",
 
 ]
@@ -140,4 +140,4 @@ plt.xlabel("Number of Layers")
 plt.ylabel("R² Score")
 ax.legend(fontsize=12)
 plt.tight_layout()
-plt.savefig("figures/r2_scores_cv_bias.png")
+plt.savefig("figures/r2_scores_cv_bias_FIXED.png")

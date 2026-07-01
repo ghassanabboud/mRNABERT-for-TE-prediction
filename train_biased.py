@@ -54,8 +54,8 @@ class BiasedModelArguments:
             "help": (
                 "Bias mode: "
                 "'no_bias' — plain attention; "
-                "'utr_only' — WC bias for UTR tokens only; "
-                "'full' — WC bias for UTR + CDS tokens; "
+                "'utr_only' — Watson-Crick bias for UTR tokens only; "
+                "'full' — Watson-Crick bias for UTR + CDS tokens; "
                 "'linearfold' — LinearFold secondary-structure bias (requires --linearfold_bias_file)."
             )
         },
