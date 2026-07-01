@@ -175,4 +175,29 @@ def get_cai(
     # Return the normalized CAI by exponentiating the average log2 value
     return math.exp(cai / protein_length)
 
-#def get_optimal
+def get_max_usage_sequence(rna_seq: str) -> str:
+    """Replace each CDS codon with the most-used synonymous codon, keeping UTRs as nucleotides."""
+    tokens = rna_seq.split(" ")
+    utr5_len_nt, num_cds_codons = find_utr5_cds_boundaries(tokens)
+    cds_end = utr5_len_nt + num_cds_codons
+
+    optimized = list(tokens)
+    for i in range(utr5_len_nt, cds_end):
+        amino_acid = CODON_TO_AMINO_ACID[tokens[i]]
+        optimized[i] = MOST_USED_CODON_PER_AA[amino_acid]
+
+    return " ".join(optimized)
+
+
+def get_min_usage_sequence(rna_seq: str) -> str:
+    """Replace each CDS codon with the least-used synonymous codon, keeping UTRs as nucleotides."""
+    tokens = rna_seq.split(" ")
+    utr5_len_nt, num_cds_codons = find_utr5_cds_boundaries(tokens)
+    cds_end = utr5_len_nt + num_cds_codons
+
+    optimized = list(tokens)
+    for i in range(utr5_len_nt, cds_end):
+        amino_acid = CODON_TO_AMINO_ACID[tokens[i]]
+        optimized[i] = LEAST_USED_CODON_PER_AA[amino_acid]
+
+    return " ".join(optimized)
