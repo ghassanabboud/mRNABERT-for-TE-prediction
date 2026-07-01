@@ -3,9 +3,10 @@
 
 ## Results and Next Steps
 
-FILL
+WC bias performs worse than no bias in the 10-fold CV.
 
 
+NOTE FROM 01.07: THIS EXPERIMENT CONTAINS A BUG IN THE WATSON-CRICK BIAS CONSTRUCTION. REFER TO EXPERIMENT 08 FOR THE FIXED VERSION. 
 
 ## Objective 
 
