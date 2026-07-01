@@ -1,4 +1,4 @@
-# Experiment 09: Evaluate effect of uAUG insertion on model performance
+# Experiment 09: Evaluate effect of uAUG insertion on model predictions
  #### **Code version:** uAUG insertional analysis(484a52ffd36f7cd4446ef78e5af3f59f41cb15ac)
 
 ## Results and Next Steps
@@ -35,7 +35,7 @@ I want to show that the model has learnt the effect of uAUG insertion on transla
 
 ## Experiment description
 
-I will use a no-bias model with 1 Bio-Prior layer, I select the fold with the highest TE, aka `outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3`. I do that because my analysis shows that increasing the number of Bio-Prior layers or adding bias does not help so might as well take the simplest model. I will use the test set of that fold and keep only sequences that have a UTR longer than 50 nucleotides and an open reading frame of at least 300 nucleotides. For each of these sequences, I will insert a AUG codon at each position and predict the TE. Note that the inserting within the CDS I will only insert AUG codons that are in frame with the original CDS. I will then calculate the delta TE for each position and for each transcript. I will then plot the average delta TE for each position across all transcripts.
+I will use a no-bias model with 1 Bio-Prior layer, I select the fold with the highest TE, aka `outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3`. I do that because my analysis shows that increasing the number of Bio-Prior layers or adding bias does not help so might as well take the simplest model. I will use the test set of that fold and keep only sequences that have a UTR longer than 501 nucleotides and an open reading frame of at least 300 nucleotides. For each of these sequences, I will insert a AUG codon at each position and predict the TE. Note that the inserting within the CDS I will only insert AUG codons that are in frame with the original CDS. I will then calculate the delta TE for each position and for each transcript. I will then plot the average delta TE for each position across all transcripts.
 
 
 ```bash
