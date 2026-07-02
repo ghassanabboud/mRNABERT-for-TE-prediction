@@ -1,24 +1,34 @@
 """
 Attention vs. LinearFold-bias correlation analysis.
 
-Hypothesis (see experiments/06-CV_LinearFold_bias.md): none of the bio-prior bias
-variants beat the no_bias model because the frozen mRNABERT backbone already
-encodes secondary-structure information in its self-attention. All bias variants
-share the same frozen backbone, so we inspect attention from the no_bias checkpoint.
+Checks whether mRNABERT's self-attention already reflects RNA secondary structure,
+without any explicit structural bias. Previous expetiments found that none of the
+bio-prior bias variants (which inject a structural prior into the attention
+scores) beat the plain no_bias model, suggesting the frozen backbone may already
+encode this information on its own from masked language modeling pre-training. This script tests that hypothesis
+directly: for each test sequence, it extracts per-layer attention (from both the
+backbone and, if present, the bio-prior head) and compares it against
+LinearFold-predicted base pairs. Token pairs that LinearFold predicts to be in
+contact ("positive" pairs) are compared to a random sample of non-contact pairs
+("negative" pairs), and the Pearson/Spearman correlation between attention score
+and LinearFold pairing is computed per layer. A high correlation in the backbone
+layers would indicate the structural information is already learned implicitly.
 
-The backbone (bert_layers.py, loaded via trust_remote_code) is a Mosaic-BERT
-implementation with ALiBi + unpadded FlashAttention-Triton kernels, which never
-exposes attention probabilities through HF's standard output_attentions. Its
-BertUnpadSelfAttention.forward already contains a plain-PyTorch fallback branch
-(taken whenever attention_probs_dropout_prob != 0 or Triton is unavailable) that
-computes softmax(qk^T/sqrt(d) + alibi_bias) explicitly before discarding it. This
-script forces that branch and captures its output via a patched forward method,
-without altering the model's weights or arithmetic.
+Examples:
+    # No-bias checkpoint, 200 test sequences
+    python study_attention_ss_correlation.py \\
+        --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3 \\
+        --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
+        --bias no_bias --max_sequences 200 \\
+        --output_pairs_csv pairs_no_bias.csv --output_correlation_csv corr_no_bias.csv
 
-For each test sequence, attention (averaged over heads, symmetrized) is compared
-against the pre-computed LinearFold token-pair bias at LinearFold-paired
-positions ("positive" pairs) and a random sample of unpaired positions
-("negative" pairs), and Pearson/Spearman correlation is computed per layer.
+    # LinearFold-biased checkpoint, also sanity-check metrics on the full test set
+    python study_attention_ss_correlation.py \\
+        --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_lf_bias/val_fold_4_test_fold_3 \\
+        --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
+        --bias linearfold --linearfold_bias_file processed_data_RiboNN/all_lf_bias.npz \\
+        --max_sequences -1 --evaluate_test_set \\
+        --output_pairs_csv pairs_lf_bias.csv --output_correlation_csv corr_lf_bias.csv
 """
 
 import argparse
@@ -43,7 +53,6 @@ from utils.analysis import (
 
 CHECKPOINT_PATH = "outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3"
 BASE_MODEL_NAME = "YYLY66/mRNABERT"
-TEST_CSV_PATH = "processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv"
 BIAS_NPZ_PATH = "processed_data_RiboNN/all_lf_bias.npz"
 
 NUM_HEADS = 8
@@ -73,19 +82,19 @@ def parse_args():
                          help="Path to the LinearFold .npz. Used both as the ground-truth pairs for "
                               "the correlation analysis and, when --bias linearfold, as the model's "
                               "own bio_prior_bias input.")
-    parser.add_argument("--test_csv_path", type=str, default=TEST_CSV_PATH,
+    parser.add_argument("--test_csv_path", type=str, required=True,
                          help="Path to the test.csv used both for the attention/LinearFold correlation "
                               "analysis and, when --evaluate_test_set is set, for the metrics pass.")
-    parser.add_argument("--max_sequences", type=int, default=200,
+    parser.add_argument("--max_sequences", type=int, required=True,
                          help="Number of test-set transcripts to process (use -1 to run on all).")
     parser.add_argument("--negative_ratio", type=int, default=5,
                          help="Number of sampled unpaired (negative) pairs per positive pair.")
     parser.add_argument("--max_negatives_per_seq", type=int, default=2000,
                          help="Cap on sampled negative pairs per sequence.")
     parser.add_argument("--seed", type=int, default=0, help="Random seed for negative-pair sampling.")
-    parser.add_argument("--output_pairs_csv", type=str, default="attention_linearfold_pairs.csv",
+    parser.add_argument("--output_pairs_csv", type=str, required=True,
                          help="Path to write the raw per-(layer, sequence, token pair) records.")
-    parser.add_argument("--output_correlation_csv", type=str, default="attention_linearfold_correlation.csv",
+    parser.add_argument("--output_correlation_csv", type=str, required=True,
                          help="Path to write the per-layer correlation summary.")
     parser.add_argument("--evaluate_test_set", action="store_true",
                          help="Also run batched inference on the full test.csv and report regression "

@@ -5,6 +5,12 @@ For each qualifying transcript in the test set (5'UTR no longer than MAX_UTR5_LE
 the wildtype CAI, generate a most-optimal-codon and a least-optimal-codon variant of the CDS,
 run the fine-tuned mRNABERT checkpoint on all three sequences, and record the predicted mean TE
 alongside the CAI of each variant.
+
+Example:
+    python study_codon_optimality.py \\
+        --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3 \\
+        --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
+        --max_sequences 200 --output_csv_path codon_optimality_analysis_results.csv
 """
 
 import argparse
@@ -20,9 +26,7 @@ from utils.analysis import (
     load_model,
 )
 
-CHECKPOINT_PATH = "outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3"
 BASE_MODEL_NAME = "YYLY66/mRNABERT"
-TEST_CSV_PATH = "processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv"
 
 NUM_HEADS = 8
 NUM_BIO_LAYERS = 1
@@ -33,6 +37,10 @@ MAX_UTR5_LEN = 300
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Codon optimality analysis on a fine-tuned mRNABERT checkpoint.")
+    parser.add_argument("--checkpoint_path", type=str, required=True,
+                         help="Path to the trained checkpoint to load.")
+    parser.add_argument("--test_csv_path", type=str, required=True,
+                         help="Path to the test.csv of qualifying transcripts to run the codon optimality analysis on.")
     parser.add_argument("--output_csv_path", type=str, default="codon_optimality_analysis_results.csv",
                          help="Path to write the per-variant predictions CSV.")
     parser.add_argument("--max_sequences", type=int, default=200,
@@ -52,7 +60,7 @@ def main():
 
     tokenizer, model = load_model(
         device,
-        checkpoint_path=CHECKPOINT_PATH,
+        checkpoint_path=args.checkpoint_path,
         base_model_name=BASE_MODEL_NAME,
         model_max_length=MODEL_MAX_LENGTH,
         num_heads=NUM_HEADS,
@@ -60,7 +68,7 @@ def main():
         num_bio_layers=NUM_BIO_LAYERS,
     )
 
-    df = pd.read_csv(TEST_CSV_PATH, usecols=["tx_id", "sequence"])
+    df = pd.read_csv(args.test_csv_path, usecols=["tx_id", "sequence"])
 
     records = []
     num_valid_sequences = 0

@@ -5,7 +5,11 @@ For each qualifying transcript in the test set, insert an AUG codon at every adm
 position around the annotated start codon (out-of-frame in the 5'UTR, in-frame in the CDS),
 run the fine-tuned mRNABERT checkpoint on each variant, and record the predicted mean TE.
 
-See experiments/09-uAUG_insertion.md for the motivating analysis.
+Example:
+    python study_AUG_insertion.py \\
+        --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3 \\
+        --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
+        --max_sequences 200 --output_csv_path insertional_analysis_results.csv
 """
 
 import argparse
@@ -15,9 +19,7 @@ import torch
 
 from utils.analysis import find_utr5_cds_boundaries, generate_variants, load_model
 
-CHECKPOINT_PATH = "outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3"
 BASE_MODEL_NAME = "YYLY66/mRNABERT"
-TEST_CSV_PATH = "processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv"
 MOTIFS = ["ATG"]
 
 NUM_HEADS = 8
@@ -29,13 +31,17 @@ MIN_CDS_LEN = 300
 
 def parse_args():
     parser = argparse.ArgumentParser(description="uAUG insertion analysis on a fine-tuned mRNABERT checkpoint.")
+    parser.add_argument("--checkpoint_path", type=str, required=True,
+                         help="Path to the trained checkpoint to load.")
+    parser.add_argument("--test_csv_path", type=str, required=True,
+                         help="Path to the test.csv of qualifying transcripts to run the insertion analysis on.")
     parser.add_argument("--upstream_window", type=int, default=200,
                          help="Number of nucleotide positions upstream of the start codon to scan.")
     parser.add_argument("--downstream_window", type=int, default=100,
                          help="Number of in-frame nucleotide positions downstream (within the CDS) to scan.")
-    parser.add_argument("--output_csv_path", type=str, default="insertional_analysis_results.csv",
+    parser.add_argument("--output_csv_path", type=str, required=True,
                          help="Path to write the per-variant predictions CSV.")
-    parser.add_argument("--max_sequences", type=int, default=200,
+    parser.add_argument("--max_sequences", type=int, required=True,
                          help="Cap on the number of qualifying transcripts to process (use -1 to run on all).")
     parser.add_argument("--batch_size", type=int, default=32,
                          help="Batch size for model inference.")
@@ -52,7 +58,7 @@ def main():
 
     tokenizer, model = load_model(
         device,
-        checkpoint_path=CHECKPOINT_PATH,
+        checkpoint_path=args.checkpoint_path,
         base_model_name=BASE_MODEL_NAME,
         model_max_length=MODEL_MAX_LENGTH,
         num_heads=NUM_HEADS,
@@ -60,7 +66,7 @@ def main():
         num_bio_layers=NUM_BIO_LAYERS,
     )
 
-    df = pd.read_csv(TEST_CSV_PATH, usecols=["tx_id", "sequence"])
+    df = pd.read_csv(args.test_csv_path, usecols=["tx_id", "sequence"])
 
     records = []
     num_valid_sequences = 0
