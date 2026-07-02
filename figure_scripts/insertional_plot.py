@@ -1,20 +1,10 @@
-"""
-Plot the effect of AUG insertion on predicted translation efficiency (TE).
-
-Loads the per-variant predictions produced by insertional_analysis.py, computes the
-delta in predicted mean TE relative to each transcript's unmodified baseline, and plots
-the average delta TE across transcripts as a function of insertion position.
-
-See experiments/09-uAUG_insertion.md for the motivating analysis.
-"""
-
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
 plt.rcParams.update({"font.size": 12})
 
-RESULTS_CSV_PATH = "/scratch/izar/gabboud/mRNABERT/outputs/insertional_analysis/max_seq_200_upstream_500/insertional_analysis_results.csv"
+RESULTS_CSV_PATH = "./outputs/insertional_analysis/max_seq_200_upstream_500/insertional_analysis_results.csv"
 OUTPUT_FIGURE_PATH = "figures/uAUG_insertion_delta_TE.png"
 
 
