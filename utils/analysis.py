@@ -84,7 +84,7 @@ def find_utr5_cds_boundaries(tokens):
     """Return (utr5_len_nt, num_cds_codons) from a space-tokenized 'full' sequence.
 
     5'UTR tokens are single nucleotides (len 1); CDS tokens are codons (len 3),
-    contiguous and starting right after the 5'UTR (see utils/preprocess.py).
+    contiguous and starting right after the 5'UTR (see utils/preprocessing.py).
     """
     utr5_len_nt = 0
     while utr5_len_nt < len(tokens) and len(tokens[utr5_len_nt]) == 1:

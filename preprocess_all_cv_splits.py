@@ -1,21 +1,12 @@
-"""
-Build 10-fold cross-validation splits from the RiboNN dataset.
-
-For each fold i:  test=fold_i, val=fold_(i+1 % 10), train=remaining 8 folds.
-
-    python utils/crossvalidation.py --sequence_mode utr5_cds \
-        --output_dir processed_data_RiboNN/cv_utr5_cds/
-"""
-
 import argparse
 import os
 
-from utils.preprocess import RIBONN_DATA_PATH, export_sequences_for_mrnabert
+from utils.preprocessing import export_sequences_for_mrnabert
 
 
 def main():
     parser = argparse.ArgumentParser(description="Build 10-fold CV splits from RiboNN data")
-    parser.add_argument("--data_path", default=RIBONN_DATA_PATH)
+    parser.add_argument("--data_path", required=True)
     parser.add_argument("--output_dir", default=None)
     parser.add_argument("--sequence_mode", default="utr5_cds",
                         choices=["full", "cds_only", "utr5_only", "utr3_only", "utr5_cds", "start_codon_window"])
