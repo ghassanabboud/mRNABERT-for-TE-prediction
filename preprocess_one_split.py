@@ -1,3 +1,14 @@
+"""
+Preprocessing utilities and entry point for the RiboNN dataset.
+
+Run as a script to produce a single train/dev/test split:
+    python preprocess_one_split.py --sequence_mode utr5_cds --val_fold 8 --test_fold 9 \
+        --output_dir processed_data_RiboNN/
+
+For 10-fold cross-validation splits, see utils/crossvalidation.py.
+"""
+
+
 import argparse
 import os
 

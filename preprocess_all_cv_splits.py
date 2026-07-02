@@ -1,3 +1,12 @@
+"""
+Build 10-fold cross-validation splits from the RiboNN dataset.
+
+For each fold i:  test=fold_i, val=fold_(i+1 % 10), train=remaining 8 folds.
+
+    python preprocess_all_cv_splits.py --sequence_mode utr5_cds \
+        --output_dir processed_data_RiboNN/cv_utr5_cds/
+"""
+
 import argparse
 import os
 
