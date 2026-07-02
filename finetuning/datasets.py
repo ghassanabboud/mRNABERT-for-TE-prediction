@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning on RiboNN translation efficiency data.
 
-    Expects a CSV with columns: [metadata...], sequence, [label...].
+    Expects a CSV with columns: [metadata...], sequence, [labels...].
     Always includes tx_id in returned items when present in the CSV metadata;
     
     Note that the HFTrainer will drop it via remove_unused_columns=True because it detects
@@ -18,6 +18,10 @@ class SupervisedDataset(Dataset):
 
     The tokenizer passed at initialization should have the desired model_max_length set as attribute,
     this is currently done in train.py and train_biased.py via the TrainingArguments.model_max_length attribute.
+    
+    Note that the SupervisedDataset pads all sequences to model_max_length so SupervisedDataCollator's padding
+    operation is redundant. This may not be the most memory-efficient as a specific batch may end up having sequences
+    all shorter than model_max_length. However, this is rarely the case for RiboNN data where most sequences get truncated.
     """
 
     def __init__(self, data_path: str, tokenizer: transformers.PreTrainedTokenizer):

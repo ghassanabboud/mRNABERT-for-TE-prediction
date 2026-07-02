@@ -17,6 +17,19 @@ class BioPriorAttention(nn.Module):
     """
 
     def __init__(self, hidden_size: int, num_heads: int, dropout: float = 0.1):
+        """Build the query/key/value/output projections for multi-head attention.
+
+        Parameters
+        ----------
+        hidden_size : int
+            Width of the input and output hidden states. Must be divisible
+            by `num_heads`.
+        num_heads : int
+            Number of attention heads to split `hidden_size` into.
+        dropout : float, optional
+            Dropout probability applied to attention weights after softmax.
+            Default 0.1.
+        """
         super().__init__()
         if hidden_size % num_heads != 0:
             raise ValueError(
@@ -37,6 +50,29 @@ class BioPriorAttention(nn.Module):
         extended_attention_mask: torch.Tensor,  # (B, 1, 1, L) additive mask
         bio_prior_bias: Optional[torch.Tensor] = None,  # (B, num_heads|1, L, L)
     ) -> torch.Tensor:
+        """Run one self-attention pass, adding the bio-prior bias to the
+        attention scores before softmax so it steers which tokens attend to
+        each other (e.g. base-paired nucleotides, Watson-Crick partners).
+
+        Parameters
+        ----------
+        hidden_states : torch.Tensor
+            Input token representations, shape (B, L, H).
+        extended_attention_mask : torch.Tensor
+            Additive padding mask, shape (B, 1, 1, L): 0 for real tokens,
+            large negative for padding, added to the attention scores so
+            padding positions get ~0 weight after softmax.
+        bio_prior_bias : Optional[torch.Tensor], optional
+            Additive attention bias, shape (B, num_heads, L, L) or
+            (B, 1, L, L) (broadcast across heads). Added to the raw
+            attention scores before the padding mask and softmax. If None,
+            attention runs with no prior. Default None.
+
+        Returns
+        -------
+        torch.Tensor
+            Attention output, shape (B, L, H).
+        """
         B, L, H = hidden_states.shape
         nh, hd = self.num_heads, self.head_dim
 
@@ -78,6 +114,31 @@ class mRNABERTWithBioPriorHead(nn.Module):
         dropout: float = 0.1,
         num_bio_layers: int = 1,
     ):
+        """Wrap a pre-trained BERT backbone with bio-prior attention layers
+        and a regression head for predicting translation efficiency.
+
+        Parameters
+        ----------
+        base_model : nn.Module
+            Pre-trained BERT-style encoder (e.g. mRNABERT) that returns
+            last_hidden_state as the first output element. Not frozen here;
+            call `freeze_bert()` separately if needed.
+        hidden_size : int, optional
+            Hidden dimension of `base_model`'s outputs and of the bio-prior
+            attention layers. Default 768.
+        num_heads : int, optional
+            Number of attention heads in each bio-prior attention layer.
+            Default 8.
+        num_labels : int, optional
+            Number of output regression targets (e.g. cell types with a TE
+            value to predict). Default 78 for human 
+        dropout : float, optional
+            Dropout probability used in the bio-prior attention layers and
+            before the classifier. Default 0.1.
+        num_bio_layers : int, optional
+            Number of stacked bio-prior attention + LayerNorm blocks applied
+            after the backbone. Default 1.
+        """
         super().__init__()
         self.bert = base_model
         self.bio_attn_layers = nn.ModuleList([
@@ -92,10 +153,26 @@ class mRNABERTWithBioPriorHead(nn.Module):
         self.classifier = nn.Linear(hidden_size, num_labels)
 
     def freeze_bert(self) -> None:
+        """Disable gradient updates for all backbone parameters, so training
+        only updates the bio-prior attention layers and classifier head.
+
+        Returns
+        -------
+        None
+        """
         for p in self.bert.parameters():
             p.requires_grad = False
 
     def count_parameters(self) -> dict:
+        """Count trainable vs. frozen parameters, e.g. to confirm
+        `freeze_bert()` took effect or to report model size.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys "trainable", "frozen", and "total", each
+            mapping to a parameter count (int).
+        """
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.parameters())
         return {"trainable": trainable, "frozen": total - trainable, "total": total}
@@ -108,6 +185,34 @@ class mRNABERTWithBioPriorHead(nn.Module):
         labels: Optional[torch.Tensor] = None,           # unused; loss computed in trainer
         token_type_ids: Optional[torch.Tensor] = None,
     ) -> SequenceClassifierOutput:
+        """Run the backbone, apply the bio-prior attention layers on top of
+        its output, and predict a translation-efficiency value per cell type
+        from the CLS token.
+
+        Parameters
+        ----------
+        input_ids : torch.Tensor
+            Token ids, shape (B, L).
+        attention_mask : torch.Tensor
+            1 for real tokens, 0 for padding, shape (B, L). Used both by the
+            backbone and to build the additive padding mask for the
+            bio-prior attention layers.
+        bio_prior_bias : Optional[torch.Tensor], optional
+            Additive attention bias passed to each `BioPriorAttention` layer,
+            shape (B, num_heads, L, L) or (B, 1, L, L). If None, the
+            bio-prior layers run as plain self-attention. Default None.
+        labels : Optional[torch.Tensor], optional
+            Unused here; the loss is computed by the trainer, not the model.
+            Default None. it is kept here so that the model signature signals to the HFTrainer not to pop "labels" from the batch dict.
+        token_type_ids : Optional[torch.Tensor], optional
+            Segment ids forwarded to the backbone if provided. Default None. Effectively useless in this repo but kept to respect BERT signature.
+
+        Returns
+        -------
+        SequenceClassifierOutput
+            HF output object whose `logits` field holds the predicted TE
+            values, shape (B, num_labels).
+        """
         backbone_frozen = not next(self.bert.parameters()).requires_grad
         ctx = torch.no_grad() if backbone_frozen else contextlib.nullcontext()
         with ctx:

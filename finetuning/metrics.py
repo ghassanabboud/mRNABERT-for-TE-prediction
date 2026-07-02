@@ -1,14 +1,48 @@
+from typing import Dict, List, Optional
+
 import numpy as np
 import transformers
 from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import mean_squared_error
 
 
-def calculate_metric_for_regression(logits: np.ndarray, labels: np.ndarray, label_names=None):
-    """Per-label and mean metrics for single- or multi-label regression.
+def calculate_metric_for_regression(
+    logits: np.ndarray,
+    labels: np.ndarray,
+    label_names: Optional[List[str]] = None,
+) -> Dict[str, float]:
+    """Compute per-cell-type and averaged regression metrics for HF Trainer's
+    evaluation loop, including the mean-TE-across-cell-types R^2 that is this
+    project's main evaluation metric.
 
-    r2 is defined as pearson**2 (not sklearn's coefficient of determination)
-    to match RiboNN's evaluation convention.
+    NaN label entries (missing TE measurements for a given cell type and
+    sequence) are excluded pointwise per cell type; a cell type with fewer
+    than 2 valid samples is skipped entirely and excluded from the mean
+    metrics. r2 is defined as pearson correlation squared (not sklearn's
+    coefficient of determination), to match RiboNN's evaluation convention.
+
+    Parameters
+    ----------
+    logits : np.ndarray
+        Model predictions, shape (N, num_labels) or (N, 1, num_labels) (the
+        latter is squeezed to 2D).
+    labels : np.ndarray
+        Ground-truth TE values, shape (N, num_labels), with NaN for missing
+        measurements.
+    label_names : Optional[List[str]], optional
+        Cell-type name for each label column, used to key the per-cell-type
+        metrics. If None, columns are named by their integer index.
+        Default None.
+
+    Returns
+    -------
+    Dict[str, float]
+        Dictionary of metrics: "mse_loss_mean", "pearson_corr_mean",
+        "spearman_corr_mean", "r2_score_mean" (averaged over valid cell
+        types); "pearson_mean_TE" and "r2_mean_TE" (correlation between the
+        per-sequence mean TE across cell types, predicted vs. true — the
+        main evaluation metric); and per-cell-type "pearson_{name}",
+        "spearman_{name}", "r2_{name}" for each valid cell type.
     """
     if logits.ndim == 3:
         logits = logits.reshape(-1, logits.shape[-1])
@@ -80,8 +114,26 @@ def calculate_metric_for_regression(logits: np.ndarray, labels: np.ndarray, labe
     return metrics
 
 
-def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str):
-    """Save model state dict to disk, moving tensors to CPU first."""
+def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str) -> None:
+    """Save the trained model's weights to disk at the end of a training run
+    (called from train.py / train_biased.py after trainer.train() finishes).
+
+    Moves the state dict to CPU before saving so the checkpoint doesn't stay
+    tied to a GPU device, and only writes when `trainer.args.should_save` is
+    True so that in distributed training only the main process writes the
+    file.
+
+    Parameters
+    ----------
+    trainer : transformers.Trainer
+        Trainer holding the trained model to save.
+    output_dir : str
+        Directory to write the checkpoint to.
+
+    Returns
+    -------
+    None
+    """
     state_dict = trainer.model.state_dict()
     if trainer.args.should_save:
         cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}

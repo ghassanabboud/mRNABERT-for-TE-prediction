@@ -17,9 +17,9 @@ class SupervisedDataCollator:
 
     For WC modes, pass a pre-built wc_lookup tensor (from bias.wc.build_wc_lookup).
     For linearfold mode, pass the path to the .npz produced by generate_linearfold_bias.py.
-    Collator's pads to the longest sequence though this is already done in SupervisedDataset.
-    
 
+    Note: SupervisedDataset already pads all sequences to model_max_length, so the collator's padding operation is redundant
+    when used with SupervisedDataset. It is kept so the collator can also be stand-alone. 
     """
 
     def __init__(

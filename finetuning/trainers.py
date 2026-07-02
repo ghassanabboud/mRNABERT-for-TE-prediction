@@ -3,12 +3,10 @@ from transformers import Trainer
 
 
 class MaskedRegressionTrainer(Trainer):
-    """MSE trainer that masks NaN label positions and optionally injects bio_prior_bias.
-
-    Works for both the standard fine-tuning model (bio_prior absent from batch) and
-    the bio-prior attention model (bio_prior present): bio_prior_bias is forwarded to
-    the model only when it is actually in the batch, so the standard HF model never
-    receives an unexpected kwarg.
+    """MSE trainer, inherents all logic fro HFTrainer but ovverides compute_loss for two reasons:
+    1. MSE loss is computed only on non-NaN label positions, since some sequences have missing labels for some cell types for RiboNN.
+    2. Optionally injects a bio_prior_bias tensor into the model forward pass, if present in the batch. This is used for the bio-prior attention model.
+    This trainer thus works for both the standard fine-tuning model (bio_prior absent from batch) and the bio-prior attention model (bio_prior present).
     """
 
     _bio_prior_logged: bool = False
