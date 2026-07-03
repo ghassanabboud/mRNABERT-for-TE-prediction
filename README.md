@@ -15,6 +15,7 @@ TODO: Add a link to the report once it is available.
 - [Pre-processing RiboNN dataset](#pre-processing-ribonn-dataset)
 - [Fine-tuning on RiboNN dataset](#fine-tuning)
 - [Running inference using a fine-tuned model](#running-inference-using-a-fine-tuned-model)
+- [Analysis and Plotting](#analysis-and-plotting)
 - [References](#references)
 
 
@@ -35,8 +36,10 @@ conda activate mrnabert
 
 # install required packages
 pip install -r requirements.txt
-pip uninstall triton
+pip uninstall -y triton
 ```
+
+If you plan to use LinearFold secondary-structure bias (`--bias linearfold` / `generate_linearfold_bias.py`), you'll also need a separate build of the [LinearFold](https://github.com/LinearFold/LinearFold) binary; its path is passed explicitly to the relevant scripts and is not installed via `requirements.txt`.
 
 ## Testing
 
@@ -67,22 +70,33 @@ wget https://static-content.springer.com/esm/art%3A10.1038%2Fs41587-025-02712-x/
 
 ```bash
 # one split, keeping the entire sequence
-python preprocess_one_split.py --data_path human_RiboNN.xlsx --sequence_mode full --val_fold 8 --test_fold 9 --output_dir processed_data_RiboNN/one_split_full/
+python preprocess_one_split.py \
+    --data_path human_RiboNN.xlsx \
+    --sequence_mode full \
+    --val_fold 8 \
+    --test_fold 9 \
+    --output_path processed_data_RiboNN/one_split_full/
 
 # all ten splits, keeping only the 5' UTR region of the mRNA
-python preprocess_all_cv_splits.py --data_path human_RiboNN.xlsx --sequence_mode utr5_only
---output_dir processed_data_RiboNN/all_splits_utr5_only/
-
+python preprocess_all_cv_splits.py \
+    --data_path human_RiboNN.xlsx \
+    --sequence_mode utr5_only \
+    --output_dir processed_data_RiboNN/all_splits_utr5_only/
 ```
 
-sequence_mode is one of `full`, `cds_only`, `utr5_only`, `utr3_only`, `utr5_cds` to conduct ablation studies on different regions of mRNA. The script will generate three CSV files `train.csv`, `test.csv` and `dev.csv`. If fine-tuning or running inference on a model using LinearFold bias, Linearfold must be installed and its predictions pre-computed to be passed to the model.
+sequence_mode includes `full`, `cds_only`, `utr5_only`, `utr3_only`, `utr5_cds` to conduct ablation studies on different regions of mRNA. The script will generate three CSV files `train.csv`, `test.csv` and `dev.csv`. If fine-tuning or running inference on a model using LinearFold bias, Linearfold must be installed and its predictions pre-computed to be passed to the model.
 
 ```bash
-#only on a single file, using 4 workers for multi-core processing.
-python generate_linearfold_bias.py processed_data_RiboNN/one_split_full/train.csv -o processed_data_RiboNN/one_split_full/train_linearfold_bias.npz --num_workers 4 --linearfold /path/to/linearfold/executable
+#only on a single file, using 4 parallel worker processes.
+python generate_linearfold_bias.py processed_data_RiboNN/one_split_full/train.csv \
+    -o processed_data_RiboNN/one_split_full/train_linearfold_bias.npz \
+    --jobs 4 \
+    --linearfold /path/to/linearfold/executable
 
 #on all three files in directory
-python generate_linearfold_bias.py processed_data_RiboNN/one_split_full/ -o processed_data_RiboNN/one_split_full/all_seq_linearfold_bias.npz --linearfold /path/to/linearfold/executable
+python generate_linearfold_bias.py processed_data_RiboNN/one_split_full/ \
+    -o processed_data_RiboNN/one_split_full/all_seq_linearfold_bias.npz \
+    --linearfold /path/to/linearfold/executable
 ```
 
 ## Fine-tuning on RiboNN dataset
@@ -107,8 +121,7 @@ python train.py \
     --warmup_steps 150 \
     --eval_steps 100 \
     --save_steps 100 \
-    --logging_steps 10 \
-
+    --logging_steps 10
 
 # fine-tuning mRNABERTwithBioPriorHead model with LineaFold bias
 # freezing mRNABERT backbone to only train the BioPriorAttention modules and feedforward head
@@ -139,6 +152,12 @@ python train_biased.py \
 `predict.py` runs inference using models trained with `train.py` while `predict_biased.py` runs inference using models trained with `train_biased.py`. Example input files are provided in `inference_data/example_inference/`. 
 
 ```bash
+# example inference using a model trained with train.py (no bio-prior bias)
+python predict.py \
+    --checkpoint_path outputs/finetune_entire_model \
+    --input_csv inference_data/example_inference/example_inference_short.csv \
+    --output_dir predictions/example_inference
+
 # example inference using a LineaFold-biased model. example_inference_short.npz was generated
 # from example_inference_short.csv using generate_linearfold_bias.py
   python predict_biased.py \
