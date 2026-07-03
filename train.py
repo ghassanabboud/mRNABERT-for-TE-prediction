@@ -72,6 +72,8 @@ def train():
         model_args.model_name_or_path,
         num_labels=train_dataset.num_labels,
         problem_type="regression",
+        id2label={i: name for i, name in enumerate(train_dataset.label_names)},
+        label2id={name: i for i, name in enumerate(train_dataset.label_names)},
     )
     model = transformers.AutoModelForSequenceClassification.from_pretrained(
         model_args.model_name_or_path,

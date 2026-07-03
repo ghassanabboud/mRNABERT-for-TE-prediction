@@ -2,24 +2,29 @@
 Run label-less inference with a trained bio-prior-head mRNABERT checkpoint
 (see train_biased.py): given a CSV of sequences with no TE columns, predict
 TE for every cell type the checkpoint was trained on and save per-sequence
-predictions. No metrics are computed since there is nothing to compare
-against.
+predictions. 
 
 mRNABERTWithBioPriorHead is a plain nn.Module, not a HF PreTrainedModel, so
-the checkpoint directory has no config.json recording the architecture it
-was trained with. num_labels is read back from the checkpoint's classifier
-weight shape, but --num_heads, --num_bio_layers, and --bias must be passed
-explicitly, matching the values used for that run (check the SLURM script
-that launched training, e.g. under jobs/, or the run's wandb config).
+train_biased.py writes its own bio_prior_config.json next to
+pytorch_model.bin recording the architecture (num_heads, num_bio_layers,
+bias mode, base model, cell-type names) it was trained with.
+mRNABERTWithBioPriorHead.from_checkpoint reads that file to reconstruct the model.
+
+If using a checkpoint trained with --bias linearfold, you must also pass --linearfold_bias_file
+It must be generated for the sequences in --input_csv (via generate_linearfold_bias.py)
 
 Example:
     python predict_biased.py \
         --checkpoint_path outputs/biased_head_wc_utr5_cds_1024_frozen_1_layer_full_bias \
-        --input_csv new_constructs.csv \
-        --bias full \
-        --num_heads 8 \
-        --num_bio_layers 1 \
-        --output_dir predictions/new_constructs
+        --input_csv processed_data/example_inference/example_inference_short.csv \
+        --output_dir predictions/example_inference_wc_bias
+
+    # linearfold checkpoints require a bias file generated for the input CSV:
+    python predict_biased.py \
+        --checkpoint_path outputs/biased_linearfold \
+        --input_csv processed_data/example_inference/example_inference_short.csv \
+        --linearfold_bias_file processed_data/example_inference/example_inference_short.npz \
+        --output_dir predictions/example_inference_lf_bias
 """
 
 import argparse
@@ -30,7 +35,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import AutoModel, AutoTokenizer, BertConfig
+from transformers import AutoTokenizer
 
 from bias import build_wc_lookup, mRNABERTWithBioPriorHead
 from finetuning import SupervisedDataCollator, SupervisedDataset
@@ -38,28 +43,26 @@ from finetuning import SupervisedDataCollator, SupervisedDataset
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run label-less inference with a trained bio-prior-head mRNABERT checkpoint.")
-    parser.add_argument("--checkpoint_path", type=str, required=True, help="Directory containing pytorch_model.bin from train_biased.py.")
+    parser.add_argument("--checkpoint_path", type=str, required=True, help="Directory containing pytorch_model.bin and bio_prior_config.json from train_biased.py.")
     parser.add_argument("--input_csv", type=str, required=True, help="CSV with a 'sequence' column (and optional metadata columns); no label columns.")
     parser.add_argument("--output_dir", type=str, default="predictions")
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--base_model_name", type=str, default="YYLY66/mRNABERT", help="HF model ID for the backbone; must match the training run.")
-    parser.add_argument("--num_heads", type=int, required=True, help="Attention heads per bio-prior layer, as used at training time.")
-    parser.add_argument("--num_bio_layers", type=int, required=True, help="Number of stacked BioPriorAttention layers, as used at training time.")
     parser.add_argument(
-        "--bias",
+        "--linearfold_bias_file",
         type=str,
-        required=True,
-        choices=("no_bias", "utr_only", "full", "linearfold"),
-        help="Bias mode the checkpoint was trained with.",
+        default=None,
+        help=(
+            "Path to .npz of LinearFold token-pair scores for the sequences in --input_csv "
+            "(generate with generate_linearfold_bias.py). Required if the checkpoint was "
+            "trained with --bias linearfold. Must cover the inference sequences, not the "
+            "training set's bias file."
+        ),
     )
-    parser.add_argument("--linearfold_bias_file", type=str, default=None, help="Path to .npz of LinearFold token-pair scores. Required when --bias linearfold.")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    if args.bias == "linearfold" and not args.linearfold_bias_file:
-        raise ValueError("--bias linearfold requires --linearfold_bias_file.")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -75,31 +78,25 @@ def main():
     dataset = SupervisedDataset(tokenizer=tokenizer, data_path=args.input_csv)
     print(f"Input set size: {len(dataset)}")
 
-    state_dict = torch.load(os.path.join(args.checkpoint_path, "pytorch_model.bin"), map_location="cpu")
-    num_labels = state_dict["classifier.weight"].shape[0]
-    print(f"num_labels inferred from checkpoint classifier: {num_labels}")
+    model, cfg = mRNABERTWithBioPriorHead.from_checkpoint(args.checkpoint_path, device=device)
+    bias_mode = cfg["bias"]
+    num_labels = cfg["num_labels"]
+    id2label = cfg["id2label"]
+    print(f"Loaded checkpoint: bias={bias_mode}  num_heads={cfg['num_heads']}  num_bio_layers={cfg['num_bio_layers']}  num_labels={num_labels}")
 
-    config = BertConfig.from_pretrained(args.base_model_name)
-    base_model = AutoModel.from_pretrained(args.base_model_name, config=config, trust_remote_code=True)
-
-    model = mRNABERTWithBioPriorHead(
-        base_model=base_model,
-        hidden_size=768,
-        num_heads=args.num_heads,
-        num_labels=num_labels,
-        num_bio_layers=args.num_bio_layers,
-    )
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.eval()
+    if bias_mode == "linearfold" and not args.linearfold_bias_file:
+        raise ValueError(
+            "This checkpoint was trained with --bias linearfold; pass --linearfold_bias_file "
+            "generated for the sequences in --input_csv (see generate_linearfold_bias.py)."
+        )
 
     wc_lookup = None
-    if args.bias in ("utr_only", "full"):
-        wc_lookup = build_wc_lookup(tokenizer, utr_only=(args.bias == "utr_only"))
+    if bias_mode in ("utr_only", "full"):
+        wc_lookup = build_wc_lookup(tokenizer, utr_only=(bias_mode == "utr_only"))
 
     data_collator = SupervisedDataCollator(
         tokenizer=tokenizer,
-        bias_mode=args.bias,
+        bias_mode=bias_mode,
         wc_lookup=wc_lookup,
         bias_npz_path=args.linearfold_bias_file,
     )
@@ -119,7 +116,8 @@ def main():
 
     all_logits = np.concatenate(all_logits, axis=0)  # (N, num_labels)
 
-    pred_cols = {f"predicted_{i}": all_logits[:, i] for i in range(num_labels)}
+    names = [id2label[str(i)] for i in range(num_labels)]
+    pred_cols = {f"predicted_{n}": all_logits[:, i] for i, n in enumerate(names)}
 
     # Relies on shuffle=False above so rows stay aligned with dataset's order.
     meta_cols = {

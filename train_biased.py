@@ -171,6 +171,19 @@ def train():
     if training_args.save_model:
         trainer.save_state()
         safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+        if trainer.args.should_save:
+            bio_prior_config = {
+                "base_model_name": model_args.base_model_name,
+                "hidden_size": 768,
+                "num_heads": model_args.num_heads,
+                "num_labels": train_dataset.num_labels,
+                "dropout": model_args.dropout,
+                "num_bio_layers": model_args.num_bio_layers,
+                "bias": model_args.bias,
+                "id2label": {i: name for i, name in enumerate(train_dataset.label_names)},
+            }
+            with open(os.path.join(training_args.output_dir, "bio_prior_config.json"), "w") as f:
+                json.dump(bio_prior_config, f, indent=2)
 
     if training_args.eval_and_save_results:
         results_path = os.path.join(training_args.output_dir, "results", training_args.run_name)

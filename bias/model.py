@@ -1,8 +1,11 @@
 import contextlib
-from typing import Optional
+import json
+import os
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
+from transformers import AutoModel, BertConfig
 from transformers.modeling_outputs import SequenceClassifierOutput
 
 
@@ -151,6 +154,50 @@ class mRNABERTWithBioPriorHead(nn.Module):
         ])
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_size, num_labels)
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint_path: str, device: str = "cpu") -> Tuple["mRNABERTWithBioPriorHead", dict]:
+        """Reconstruct a trained model from a checkpoint directory written by
+        train_biased.py, without needing the caller to know the architecture
+        hyperparameters (num_heads, num_bio_layers, bias mode, ...) used at
+        training time.
+
+        Parameters
+        ----------
+        checkpoint_path : str
+            Directory containing `bio_prior_config.json` and
+            `pytorch_model.bin`, as written by train_biased.py.
+        device : str, optional
+            Device to move the model to after loading weights. Default "cpu".
+
+        Returns
+        -------
+        Tuple[mRNABERTWithBioPriorHead, dict]
+            The reconstructed model in eval mode, and the raw config dict
+            (includes "bias" and "id2label", which callers need to build a
+            matching SupervisedDataCollator and label predictions; not
+            attributes of the model itself since the model has no notion of
+            bias mode or label names).
+        """
+        with open(os.path.join(checkpoint_path, "bio_prior_config.json")) as f:
+            cfg = json.load(f)
+
+        base_config = BertConfig.from_pretrained(cfg["base_model_name"])
+        base_model = AutoModel.from_pretrained(cfg["base_model_name"], config=base_config, trust_remote_code=True)
+
+        model = cls(
+            base_model=base_model,
+            hidden_size=cfg["hidden_size"],
+            num_heads=cfg["num_heads"],
+            num_labels=cfg["num_labels"],
+            dropout=cfg["dropout"],
+            num_bio_layers=cfg["num_bio_layers"],
+        )
+        state_dict = torch.load(os.path.join(checkpoint_path, "pytorch_model.bin"), map_location="cpu")
+        model.load_state_dict(state_dict)
+        model.to(device)
+        model.eval()
+        return model, cfg
 
     def freeze_bert(self) -> None:
         """Disable gradient updates for all backbone parameters, so training

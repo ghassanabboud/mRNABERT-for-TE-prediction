@@ -1,8 +1,7 @@
 """
 Run label-less inference with a fine-tuned mRNABERT checkpoint (see train.py):
 given a CSV of sequences with no TE columns, predict TE for every cell type
-the checkpoint was trained on and save per-sequence predictions. No metrics
-are computed since there is nothing to compare against.
+the checkpoint was trained on and save per-sequence predictions.
 
 Example:
     python predict.py \
@@ -76,9 +75,9 @@ def main():
 
     all_logits = np.concatenate(all_logits, axis=0)  # (N, num_labels)
 
-    label_names = dataset.label_names
-    n_labels = all_logits.shape[1] if all_logits.ndim == 2 else 1
-    names = label_names if len(label_names) == n_labels else [str(i) for i in range(n_labels)]
+    # id2label keys are strings on disk (JSON) but transformers may normalize
+    # them back to int in memory after from_pretrained; handle both.
+    names = [config.id2label.get(i, config.id2label.get(str(i))) for i in range(config.num_labels)]
     pred_cols = {f"predicted_{n}": all_logits[:, i] for i, n in enumerate(names)}
 
     # Relies on shuffle=False above so rows stay aligned with dataset's order.
