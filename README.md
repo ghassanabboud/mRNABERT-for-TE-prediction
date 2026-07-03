@@ -2,7 +2,7 @@
 
 
 This repository builds upon the original [mRNABERT codebase](https://github.com/yyly6/mRNABERT). 
-It extends its evaluation on predicting mRNA translation efficiency of ultra-long sequences from the [RiboNN dataset](https://github.com/Sanofi-Public/RiboNN). Mainly, it investigates whether incorporating structural priors during finetuning can improve translation efficiency prediction. It also highlights the features learnt by mRNABERT upon finetuning. For information on results, kindly refer to the associated report. Refer to the original [mRNABERT README](https://github.com/yyly6/mRNABERT) for more information about the original model architecture, pre-training and other applications of mRNABERT.
+It extends its evaluation on predicting mRNA translation efficiency of ultra-long sequences from the [RiboNN dataset](https://github.com/Sanofi-Public/RiboNN). Mainly, it investigates whether incorporating structural priors during fine-tuning can improve translation efficiency prediction. It also highlights the features learnt by mRNABERT upon fine-tuning. For information on results, kindly refer to the associated report. Refer to the original [mRNABERT README](https://github.com/yyly6/mRNABERT) for more information about the original model architecture, pre-training and other applications of mRNABERT.
 
 TODO: Add a link to the report once it is available.
 
@@ -75,7 +75,7 @@ python preprocess_all_cv_splits.py --data_path human_RiboNN.xlsx --sequence_mode
 
 ```
 
-sequence_mode is one of `full`, `cds_only`, `utr5_only`, `utr3_only`, `utr5_cds` to conduct ablation studies on different regions of mRNA. The script will generate three CSV files `train.csv`, `test.csv` and `dev.csv`. If finetuning or running inference on a model using LinearFold bias, Linearfold must be installed and its predictions pre-computed to be passed to the model.
+sequence_mode is one of `full`, `cds_only`, `utr5_only`, `utr3_only`, `utr5_cds` to conduct ablation studies on different regions of mRNA. The script will generate three CSV files `train.csv`, `test.csv` and `dev.csv`. If fine-tuning or running inference on a model using LinearFold bias, Linearfold must be installed and its predictions pre-computed to be passed to the model.
 
 ```bash
 #only on a single file, using 4 workers for multi-core processing.
@@ -150,7 +150,7 @@ python train_biased.py \
 
 ## Analysis and Plotting
 
-This project also investigates whether finetuning mRNABERT on the RiboNN dataset makes the model learn translation-relevant features.
+This project also investigates whether fine-tuning mRNABERT on the RiboNN dataset makes the model learn translation-relevant features.
 
 - `study_AUG_insertion.py`: investigates whether the model learns the negative effect of upstream AUGs on translation initiation.
 - `study_codon_optimality.py`: Organisms have optimal codons that are translated more efficiently than their synonymous counterparts due to higher tRNA abundance. This script investigates whether introducing synonymous mutations that use optimal codons increases the predicted translation efficiency.
