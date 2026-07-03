@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import transformers
-from peft import LoraConfig, get_peft_model
 from transformers import BertConfig, EarlyStoppingCallback
 
 from finetuning import (
@@ -36,12 +35,7 @@ from finetuning import (
 @dataclass
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default="YYLY66/mRNABERT")
-    use_lora: bool = field(default=False, metadata={"help": "Use LoRA adapters"})
     freeze_base: bool = field(default=False, metadata={"help": "Freeze backbone; train only the classifier head"})
-    lora_r: int = field(default=32, metadata={"help": "LoRA rank"})
-    lora_alpha: int = field(default=64, metadata={"help": "LoRA alpha"})
-    lora_dropout: float = field(default=0.05, metadata={"help": "LoRA dropout"})
-    lora_target_modules: str = field(default="q,v,wo", metadata={"help": "Modules to apply LoRA to"})
 
 
 def train():
@@ -86,25 +80,9 @@ def train():
         config=config,
     )
 
-    if model_args.freeze_base and model_args.use_lora:
-        raise ValueError("--freeze_base and --use_lora cannot both be True.")
-
     if model_args.freeze_base:
         for param in model.base_model.parameters():
             param.requires_grad = False
-
-    if model_args.use_lora:
-        lora_config = LoraConfig(
-            r=model_args.lora_r,
-            lora_alpha=model_args.lora_alpha,
-            target_modules=list(model_args.lora_target_modules.split(",")),
-            lora_dropout=model_args.lora_dropout,
-            bias="none",
-            task_type="SEQ_CLS",
-            inference_mode=False,
-        )
-        model = get_peft_model(model, lora_config)
-        model.print_trainable_parameters()
 
     data_collator = SupervisedDataCollator(tokenizer=tokenizer, bias_mode="no_bias")
     label_names = train_dataset.label_names
