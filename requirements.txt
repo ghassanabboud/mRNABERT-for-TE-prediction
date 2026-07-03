@@ -3,7 +3,6 @@ evaluate
 einops
 numpy
 pandas
-peft
 scikit_learn
 scipy
 torch
@@ -11,3 +10,7 @@ tqdm
 transformers==4.32.0
 sentencepiece
 accelerate==0.24.1
+matplotlib
+seaborn
+wandb
+peft
