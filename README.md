@@ -1,33 +1,46 @@
 # Improving mRNABERT's translation efficiency prediction with structural priors
 
 
-This repository builds upon the original [mRNABERT codebase](https://github.com/yyly6/mRNABERT). It extends its evaluation on predicting mRNA translation efficiency on ultra-long sequences from the [RiboNN dataset](https://github.com/Sanofi-Public/RiboNN). It also investigated whether augmenting the model with structural priors can enhance its performance on this task. Please refer to the original [mRNABERT README]((https://github.com/yyly6/mRNABERT)) for more information about model architecture and pre-training.
+This repository builds upon the original [mRNABERT codebase](https://github.com/yyly6/mRNABERT). 
+It extends its evaluation on predicting mRNA translation efficiency of ultra-long sequences from the [RiboNN dataset](https://github.com/Sanofi-Public/RiboNN). Mainly, it investigates whether incorporating structural priors during finetuning can improve translation efficiency prediction. It also highlights the features learnt by mRNABERT upon finetuning. For information on results, kindly refer to the associated report. Refer to the original [mRNABERT README](https://github.com/yyly6/mRNABERT) for more information about the original model architecture, pre-training and other applications of mRNABERT.
 
-Novel contributions: 
-- a RiboNN specific [pre-processing pipeline](preprocess_RiboNN_data.py) supporting extraction of UTR5, CDS, and UTR3 sequences, as well as specifying different test and validation splits for direct comparison with RiboNN's original results.
-- an extension of the [fine-tuning script](regression_multilabel.py) to support multilabel regression.
-- experiments evaluating the incorporation of two structural priors into the model's prediction [TO BE DONE]
+TODO: Add a link to the report once it is available.
 
 
 ## Contents
 
 - [Introduction](#introduction)
 - [Create Environment with Conda](#create-environment-with-conda)
+- [Testing](#testing)
 - [Pre-processing RiboNN dataset](#pre-processing-ribonn-dataset)
-- [Pre-trained Model and Datasets](#pre-trained-model-and-datasets)
-- [Pre-Training](#pre-training)
-- [Fine-tuning](#fine-tuning)
-- [Citation](#citation)
-- [Contact](#contact)
+- [Fine-tuning on RiboNN dataset](#fine-tuning)
+- [Running inference using a fine-tuned model](#running-inference-using-a-fine-tuned-model)
+- [References](#references)
+
 
 ## Introduction
 
-fill
+`mRNABERTwithBioPriorHead`is this project's main model. It attaches `BioPriorAttention` modules to the original mRNABERT backbone. These modules are standard self-attention modules matching the hidden dimension and multi-head setup of the original mRNABERT model. However, they support adding a pre-computed bias term to steer the model towards attending to certain pairs.
 
+Two types of pre-computed biases are supported:
+1) Watson-Crick bias: biases are calculated based on base-pairing rules. A score of 3 is assigned to G-C, 2 to A-T, and 1 to G-T pairs. For pairs involving codons, bias is the sum of all-to-all pairwise scores. For example,  an ATG - TAA pair gets a score of 2 (A-T) + 2 (T-A) + 2 (T-A) + 1 (G-T) = 7. This approach is inspired by [ERNIE-RNA](https://www.nature.com/articles/s41467-025-64972-0).
+2) LinearFold bias: secondary structure of mRNA is predicted with [LinearFold](https://github.com/LinearFold/LinearFold) and predicted pairs get a non-zero bias term. Nucleotide-nucleotide pairs and nucleotide-codon pairs get a maximum bias of 1 while codon-codon pairs get a maximum bias of 3. 
+
+## Create Environment with Conda
+
+```bash
+# create and activate a virtual python environment
+conda create -n mrnabert python=3.8
+conda activate mrnabert
+
+# install required packages
+pip install -r requirements.txt
+pip uninstall triton
+```
 
 ## Testing
 
-A test suite developed using [pytest](https://docs.pytest.org/en/7.4.x/) verifies the Watson-Crick and LinearFold bias calculations that are the focus of this project. It also verified the computation of metrics as care needs to be taken to handle `NaN` entries in the RiboNN dataset. To run the tests, run the following from the root of the repository:
+A test suite developed using [pytest](https://docs.pytest.org/en/7.4.x/) verifies the Watson-Crick and LinearFold bias calculations that are the focus of this project. It also verifies the computation of metrics as care needs to be taken to handle `NaN` entries in the RiboNN dataset. To run the tests, run the following from the root of the repository:
 
 ```bash
 pytest tests/
@@ -39,17 +52,6 @@ The `generate_linearfold_bias.py` requires that a valid LinearFold binary be ins
 pytest tests/ --linearfold /your/path/to/linearfold/executable
 ```
 
-The test suite does
-
-## Create Environment with Conda
-
-    # create and activate a virtual python environment
-    conda create -n mrnabert python=3.8
-    conda activate mrnabert
-    
-    # install required packages
-    pip install -r requirements.txt
-    pip uninstall triton
 
 ## Pre-processing RiboNN dataset
 
@@ -60,188 +62,104 @@ wget https://static-content.springer.com/esm/art%3A10.1038%2Fs41587-025-02712-x/
 wget https://static-content.springer.com/esm/art%3A10.1038%2Fs41587-025-02712-x/MediaObjects/41587_2025_2712_MOESM4_ESM.xlsx mouse_RiboNN.xlsx
 ```
 
-
-Then, use the RiboNN preprocessing script as follows:
-
-```
-python preprocess_RiboNN_data.py --data_path human_RiboNN.xlsx --output_dir ./processed_data_RiboNN/ --sequence_mode full --val_fold 8 --test_fold 9
-```
-
-sequence_mode is one of `full`, `cds_only`, `utr5_only`, `utr3_only`, `utr5_cds` to conduct ablation studies on different regions of mRNA. The script will generate three CSV files for training, validation, and testing, each containing the sequence and its corresponding translation efficiency labels. You can specify different test and validation folds to directly compare with RiboNN's original results., keeping in mind that folds in the dataset are indexed from 0 to 9.
+`preprocess_one_split.py` and `preprocess_all_cv_splits.py` scripts generate the RiboNN dataset splits that can be consumed by the model's tokenizer. Splits match those in RiboNN's original work and are indexed from 0 to 9. 
 
 
+```bash
+# one split, keeping the entire sequence
+python preprocess_one_split.py --data_path human_RiboNN.xlsx --sequence_mode full --val_fold 8 --test_fold 9 --output_dir processed_data_RiboNN/one_split_full/
 
-## Pre-trained Model and Datasets
-
-The pre-trained model is available at [Huggingface](https://huggingface.co/YYLY66/mRNABERT) as `YYLY66/mRNABERT`. 
-
-The mRNA datasets are available on [Zenodo](https://zenodo.org/records/12516160), featuring more than 36 million comprehensive mRNA or CDS sequences from various species.
-
-
-
-**Notably, the data needs to be preprocessed.** We use [ORFfinder from NCBI](https://www.ncbi.nlm.nih.gov/orffinder) to predict the CDS regions of the mRNA. Then, please preprocess the data in different ways: use single-letter separation for the UTR regions and three-character separation for the CDS regions. We have provided custom functions and sample data before preprocessing in `data_process`.
-
-
-### Access Pre-trained Models
-You can download the pre-trained models from [Huggingface](https://huggingface.co/YYLY66/mRNABERT), or load the model directly：
-
-```python
-import torch
-from transformers import AutoTokenizer, AutoModel
-from transformers.models.bert.configuration_bert import BertConfig
-
-config = BertConfig.from_pretrained("YYLY66/mRNABERT")
-tokenizer = AutoTokenizer.from_pretrained("YYLY66/mRNABERT")
-model = AutoModel.from_pretrained("YYLY66/mRNABERT", trust_remote_code=True, config=config)
-```
-
-Extract the embeddings of mRNA sequences:
-
-```python
-seq = ["A T C G G A GGG CCC TTT", 
-       "A T C G", 
-       "TTT CCC GAC ATG"]  #Separate the sequences with spaces.
-
-encoding = tokenizer.batch_encode_plus(seq, add_special_tokens=True, padding='longest', return_tensors="pt")
-
-input_ids = encoding['input_ids']
-attention_mask = encoding['attention_mask'] 
-
-output = model(input_ids=input_ids, attention_mask=attention_mask)
-last_hidden_state = output[0]
-
-attention_mask = attention_mask.unsqueeze(-1).expand_as(last_hidden_state)  # Shape : [batch_size, seq_length, hidden_size]
-
-# Sum embeddings along the batch dimension
-sum_embeddings = torch.sum(last_hidden_state * attention_mask, dim=1)  
-
-# Also sum the masks along the batch dimension
-sum_masks = attention_mask.sum(1)  
-
-# Compute mean embedding.
-mean_embedding = sum_embeddings / sum_masks  #Shape:[batch_size, hidden_size]  
+# all ten splits, keeping only the 5' UTR region of the mRNA
+python preprocess_all_cv_splits.py --data_path human_RiboNN.xlsx --sequence_mode utr5_only
+--output_dir processed_data_RiboNN/all_splits_utr5_only/
 
 ```
 
-The extracted embeddings can be used for contrastive learning pretraining or as a feature extractor for protein-related downstream tasks.
+sequence_mode is one of `full`, `cds_only`, `utr5_only`, `utr3_only`, `utr5_cds` to conduct ablation studies on different regions of mRNA. The script will generate three CSV files `train.csv`, `test.csv` and `dev.csv`. If finetuning or running inference on a model using LinearFold bias, Linearfold must be installed and its predictions pre-computed to be passed to the model.
 
+```bash
+#only on a single file, using 4 workers for multi-core processing.
+python generate_linearfold_bias.py processed_data_RiboNN/one_split_full/train.csv -o processed_data_RiboNN/one_split_full/train_linearfold_bias.npz --num_workers 4 --linearfold /path/to/linearfold/executable
 
-
-## Pre-Training
-### Data processing
-Please see the template data at `/sample_data/pre.txt`, you should process your data into the same format as it. Please use `/data_process/process_pretrain_data` for CDS prediction and split.
-
-for example:
+#on all three files in directory
+python generate_linearfold_bias.py processed_data_RiboNN/one_split_full/ -o processed_data_RiboNN/one_split_full/all_seq_linearfold_bias.npz --linearfold /path/to/linearfold/executable
 ```
-python data_process/process_pretrain_data.py --input_file "data_process/pre-train/pre_input.fasta" --output_file "sample_data/pre.txt"  
-```
-### Pretraining stage 1
-```
-python run_mlm.py \
-  --output_dir=output/pre/mRNABERT- \
-  --model_type=bert \
-  --model_name_or_path=YYLY66/mRNABERT \
-  --do_train \
-  --learning_rate=5e-5 \
-  --num_train_epochs=10 \
-  --gradient_accumulation_steps=4 \
-  --train_file=/sample_data/pre.txt \
-  --fp16 \
-  --save_steps=1000 \
-  --logging_steps=500 \
-  --eval_steps=500 \
-  --warmup_steps=2000 \
-  --mlm_probability=0.15 \
-  --line_by_line \
-  --per_device_train_batch_size=32
 
-```
-### Pretraining stage 2
-We used the [OpenAI-CLIP](https://github.com/moein-shariatnia/OpenAI-CLIP) for contrastive learning.You can modify the code using the embedding extraction method mentioned above and reproduce the model training.
+## Fine-tuning on RiboNN dataset
 
+`train.py` script fine-tunes the base mRNABERT model with no additional `BioPriorAttention` modules. It adds a simple one-layer feedforward head to predict translation efficiency. `train_biased.py` script fine-tunes the `mRNABERTwithBioPriorHead` model with either Watson-Crick or LinearFold bias. In both cases, the base mRNABERT model is pulled from [Huggingface](https://huggingface.co/YYLY66/mRNABERT) as `YYLY66/mRNABERT`. 
 
-## Fine-tuning
-### Data processing
-Please see the template data at `/sample_data/fine-tune/mRFP` and generate `3 csv files` from your dataset into the same format as it. Each file needs to have two columns with the header row labeled as `sequence` and `label`. Please use `process_finetune_data` for split.
-
-for example:
-```
-python data_process/process_finetune_data.py  --input_dir "data_process/fine-tune/mRFP"  --output_dir "sample_data/fine-tune/mRFP" --split_option "codon"     
-```
- You can specify different split option based on the types of data: `utr` for UTR sequences, `cds` for CDS sequences, and `complete` for complete mRNA sequences. NOTE,please use '[' and ']' to mark CDS if you choose `complete` option.
-
-### Fine-tune with pre-trained model
-Then, you are able to finetune mRNABERT with the following code:
-
-```
-#For regression tasks
-
-export DATA_PATH=/sample_data/fine-tune/mRFP
-python regression.py \
-    --model_name_or_path=YYLY66/mRNABERT \
-    --data_path ${DATA_PATH} \
-    --run_name mRNABERT_${DATA_PATH} \
-    --model_max_length 250 \  #set as the number of tokens
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 8 \
+```bash
+# fine-tuning entire mRNABERT model without BioPriorAttention modules
+# truncating sequences to 1024 tokens
+# logging results to wandb under run name finetune_entire_model_one_split
+python train.py \
+    --data_path processed_data_RiboNN/one_split_full \
+    --run_name finetune_entire_model \
+    --report_to wandb \
+    --output_dir outputs/finetune_entire_model \
+    --model_max_length 1024 \
+    --per_device_train_batch_size 8 \
+    --per_device_eval_batch_size 16 \
     --gradient_accumulation_steps 1 \
-    --learning_rate 5e-5 \
-    --num_train_epochs 50 \
-    --save_steps 10 \
-    --output_dir output/${DATA_PATH} \
-    --evaluation_strategy steps \
-    --eval_steps 10 \
-    --warmup_steps 10 \
+    --learning_rate 1e-4 \
+    --num_train_epochs 20 \
+    --warmup_steps 150 \
+    --eval_steps 100 \
+    --save_steps 100 \
     --logging_steps 10 \
-    --overwrite_output_dir True \
-    --log_level info \
-    --find_unused_parameters False     
-```
-```
-#For classification tasks
 
-export DATA_PATH=$path/to/data/folder
-python classification.py \
-    --model_name_or_path=YYLY66/mRNABERT \
-    --data_path ${DATA_PATH} \
-    --run_name mRNABERT_${DATA_PATH} \
-    --model_max_length 250 \  #set as the number of tokens
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 8 \
+
+# fine-tuning mRNABERTwithBioPriorHead model with LineaFold bias
+# freezing mRNABERT backbone to only train the BioPriorAttention modules and feedforward head
+python train_biased.py \
+    --data_path processed_data_RiboNN/one_split_full \
+    --run_name finetune_lf_biased_model \
+    --report_to wandb \
+    --output_dir outputs/finetune_lf_biased_model \
+    --model_max_length 1024 \
+    --per_device_train_batch_size 8 \
+    --per_device_eval_batch_size 16 \
     --gradient_accumulation_steps 1 \
-    --learning_rate 5e-5 \
-    --num_train_epochs 50 \
-    --save_steps 10 \
-    --output_dir output/${DATA_PATH} \
-    --evaluation_strategy steps \
-    --eval_steps 10 \
-    --warmup_steps 10 \
+    --learning_rate 1e-4 \
+    --num_train_epochs 20 \
+    --warmup_steps 150 \
+    --eval_steps 100 \
+    --save_steps 100 \
     --logging_steps 10 \
-    --overwrite_output_dir True \
-    --log_level info \
-    --find_unused_parameters False       
-```
-You need to choose different `batch sizes` and `epochs` based on the dataset to achieve optimal results. Incidentally, you can also use this code to test other benchmark models through HuggingFace.
-
-
-## Citation
-
-If you find the models useful in your research, please cite our paper:
-
-```
-@article{xiong2025mrnabert,
-  title={mRNABERT: advancing mRNA sequence design with a universal language model and comprehensive dataset},
-  author={Xiong, Ying and Wang, Aowen and Kang, Yu and Shen, Chao and Hsieh, Chang-Yu and Hou, Tingjun},
-  journal={Nature Communications},
-  volume={16},
-  number={1},
-  pages={10371},
-  year={2025},
-  publisher={Nature Publishing Group UK London},
-}
+    --num_heads 8 \
+    --num_bio_layers 1 \
+    --bias linearfold \
+    --linearfold_bias_file processed_data_RiboNN/one_split_full/train_linearfold_bias.npz \
+    --freeze_backbone true
 ```
 
-The model of this code builds on the [DNABERT-2](https://arxiv.org/abs/2306.15006) modeling framework. We use [transformers](https://github.com/huggingface/transformers/tree/main/examples/pytorch/language-modeling) and [OpenAI-CLIP](https://github.com/moein-shariatnia/OpenAI-CLIP) framework to train our mRNA language models and [MultiMolecule](https://github.com/DLS5-Omics/multimolecule) for testing and comparing various benchmark models. We really appreciate these excellent works!
+## Running inference using a fine-tuned model
 
-## Contact
-If you have any question, please feel free to email us (xiongying@zju.edu.cn).
+`predict.py` runs inference using models trained with `train.py` while `predict_biased.py` runs inference using models trained with `train_biased.py`. Example input files are provided in `inference_data/example_inference/`. 
+
+```bash
+# example inference using a LineaFold-biased model. example_inference_short.npz was generated
+# from example_inference_short.csv using generate_linearfold_bias.py
+  python predict_biased.py \
+      --checkpoint_path outputs/finetune_lf_biased_model \
+      --input_csv inference_data/example_inference/example_inference_short.csv \
+      --linearfold_bias_file inference_data/example_inference/example_inference_short.npz \
+      --output_dir predictions/example_inference_lf_bias
+```
+
+## Analysis and Plotting
+
+This project also investigates whether finetuning mRNABERT on the RiboNN dataset makes the model learn translation-relevant features.
+
+- `study_AUG_insertion.py`: investigates whether the model learns the negative effect of upstream AUGs on translation initiation.
+- `study_codon_optimality.py`: Organisms have optimal codons that are translated more efficiently than their synonymous counterparts due to higher tRNA abundance. This script investigates whether introducing synonymous mutations that use optimal codons increases the predicted translation efficiency.
+- `study_attention_ss_correlation.py`: investigates whether the attention scores of the mRNABERT backbone correlate with LinearFold-predicted secondary structure of the mRNA. This would make introduction of LinearFold bias redundant. 
+
+All plotting scripts can also be found in `figure_scripts`.
+
+
+## References
+
+The code in this repository builds on that of the original [mRNABERT model](https://github.com/yyly6/mRNABERT) and of the [RiboNN model](https://github.com/Sanofi-Public/RiboNN). It also heavily relies on the [transformers library from Huggingface](https://github.com/huggingface/transformers/tree/main/examples/pytorch/language-modeling).
+
