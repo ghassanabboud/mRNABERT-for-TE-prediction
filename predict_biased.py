@@ -16,14 +16,14 @@ It must be generated for the sequences in --input_csv (via generate_linearfold_b
 Example:
     python predict_biased.py \
         --checkpoint_path outputs/biased_head_wc_utr5_cds_1024_frozen_1_layer_full_bias \
-        --input_csv processed_data/example_inference/example_inference_short.csv \
+        --input_csv processed_data/example_inference_short.csv \
         --output_dir predictions/example_inference_wc_bias
 
     # linearfold checkpoints require a bias file generated for the input CSV:
     python predict_biased.py \
         --checkpoint_path outputs/biased_linearfold \
-        --input_csv processed_data/example_inference/example_inference_short.csv \
-        --linearfold_bias_file processed_data/example_inference/example_inference_short.npz \
+        --input_csv inference_data/example_inference_short.csv \
+        --linearfold_bias_file inference_data/example_inference_short.npz \
         --output_dir predictions/example_inference_lf_bias
 """
 

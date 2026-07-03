@@ -6,7 +6,7 @@ the checkpoint was trained on and save per-sequence predictions.
 Example:
     python predict.py \
         --checkpoint_path outputs/cv_full_1024/val_fold_4_test_fold_3 \
-        --input_csv processed_data/example_inference/example_inference_short.csv \
+        --input_csv inference_data/example_inference_short.csv \
         --output_dir predictions/example_inference
 """
 

@@ -149,21 +149,21 @@ python train_biased.py \
 
 ## Running inference using a fine-tuned model
 
-`predict.py` runs inference using models trained with `train.py` while `predict_biased.py` runs inference using models trained with `train_biased.py`. Example input files are provided in `inference_data/example_inference/`. 
+`predict.py` runs inference using models trained with `train.py` while `predict_biased.py` runs inference using models trained with `train_biased.py`. Example input files are provided in `inference_data/`. 
 
 ```bash
 # example inference using a model trained with train.py (no bio-prior bias)
 python predict.py \
     --checkpoint_path outputs/finetune_entire_model \
-    --input_csv inference_data/example_inference/example_inference_short.csv \
+    --input_csv inference_data/example_inference_short.csv \
     --output_dir predictions/example_inference
 
 # example inference using a LineaFold-biased model. example_inference_short.npz was generated
 # from example_inference_short.csv using generate_linearfold_bias.py
   python predict_biased.py \
       --checkpoint_path outputs/finetune_lf_biased_model \
-      --input_csv inference_data/example_inference/example_inference_short.csv \
-      --linearfold_bias_file inference_data/example_inference/example_inference_short.npz \
+      --input_csv inference_data/example_inference_short.csv \
+      --linearfold_bias_file inference_data/example_inference_short.npz \
       --output_dir predictions/example_inference_lf_bias
 ```
 
