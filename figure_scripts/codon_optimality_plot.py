@@ -5,7 +5,9 @@ from scipy import stats
 
 from utils.plotting import bonferroni_correct, sig_label
 
-df = pd.read_csv("./outputs/codon_test/codon_test_results.csv")
+#df = pd.read_csv("./outputs/codon_test/codon_test_results.csv")
+df = pd.read_csv("/scratch/izar/gabboud/mRNABERT/outputs/codon_analysis_all_sequences/codon_test_results.csv")
+
 baseline = df[df["variant_type"] == "wildtype"].set_index("tx_id")["predicted_mean_TE"]
 variants = df[df["variant_type"] != "wildtype"].copy()
 variants["baseline_TE"] = variants["tx_id"].map(baseline)
@@ -34,7 +36,7 @@ plt.grid(True, axis="x")
 plt.xlabel("Codon Adaptation Index (CAI)")
 plt.ylabel("Count")
 plt.tight_layout()
-plt.savefig("figures/cai_hist.png")
+plt.savefig("figures/cai_hist_more_seqs.png")
 
 box_order = [v for v in plot_order if v in variants["variant_type_plot"].unique()]
 
@@ -60,5 +62,15 @@ for i, (variant_type, p_value) in enumerate(zip(box_order, p_values)):
 plt.xlabel("")
 plt.ylabel("ΔTE (variant − wildtype)")
 plt.tight_layout()
-plt.savefig("./figures/codon_delta_te_boxplot.png")
+plt.savefig("./figures/codon_delta_te_boxplot_more_seqs.png")
+
+#histogram of delta TE, split by codon-optimized vs codon-diminished
+plt.figure(figsize=(8,6))
+ax = sns.histplot(data=variants, x="delta_TE", hue="variant_type_plot", hue_order=box_order, palette=palette, bins=30, kde=True)
+ax.get_legend().set_title(None)
+plt.grid(True, axis="x")
+plt.xlabel("ΔTE (variant − wildtype)")
+plt.ylabel("Count")
+plt.tight_layout()
+plt.savefig("./figures/codon_delta_te_hist_more_seqs.png")
 
