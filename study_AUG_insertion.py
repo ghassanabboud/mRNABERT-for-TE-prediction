@@ -16,16 +16,13 @@ import argparse
 
 import pandas as pd
 import torch
+from transformers import AutoTokenizer
 
-from utils.analysis import find_utr5_cds_boundaries, generate_variants, load_model
+from bias import mRNABERTWithBioPriorHead
+from utils.analysis import find_utr5_cds_boundaries, generate_variants
 
-BASE_MODEL_NAME = "YYLY66/mRNABERT"
 MOTIFS = ["ATG"]
 
-NUM_HEADS = 8
-NUM_BIO_LAYERS = 1
-NUM_LABELS = 78
-MODEL_MAX_LENGTH = 1024
 MIN_UTR5_LEN = 501
 MIN_CDS_LEN = 300
 
@@ -56,15 +53,20 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    tokenizer, model = load_model(
-        device,
-        checkpoint_path=args.checkpoint_path,
-        base_model_name=BASE_MODEL_NAME,
-        model_max_length=MODEL_MAX_LENGTH,
-        num_heads=NUM_HEADS,
-        num_labels=NUM_LABELS,
-        num_bio_layers=NUM_BIO_LAYERS,
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.checkpoint_path,
+        padding_side="right",
+        use_fast=True,
+        trust_remote_code=True,
     )
+    print(f"model_max_length inferred from checkpoint tokenizer: {tokenizer.model_max_length}")
+    model, cfg = mRNABERTWithBioPriorHead.from_checkpoint(args.checkpoint_path, device=device)
+    if cfg["bias"] != "no_bias":
+        raise ValueError(
+            f"This checkpoint was trained with bias='{cfg['bias']}'; this script only calls the "
+            "model with bio_prior_bias=None, so it is only supported for checkpoints trained with "
+            "bias='no_bias' so far."
+        )
 
     df = pd.read_csv(args.test_csv_path, usecols=["tx_id", "sequence"])
 
@@ -102,7 +104,7 @@ def main():
                 return_tensors="pt",
                 padding="longest",
                 truncation=True,
-                max_length=MODEL_MAX_LENGTH,
+                max_length=tokenizer.model_max_length,
             )
             input_ids = inputs["input_ids"].to(device)
             attention_mask = inputs["attention_mask"].to(device)

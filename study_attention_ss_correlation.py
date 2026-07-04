@@ -19,14 +19,14 @@ Examples:
     python study_attention_ss_correlation.py \\
         --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3 \\
         --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
-        --bias no_bias --max_sequences 200 \\
+        --max_sequences 200 \\
         --output_pairs_csv pairs_no_bias.csv --output_correlation_csv corr_no_bias.csv
 
     # LinearFold-biased checkpoint, also sanity-check metrics on the full test set
     python study_attention_ss_correlation.py \\
         --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_lf_bias/val_fold_4_test_fold_3 \\
         --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
-        --bias linearfold --linearfold_bias_file processed_data_RiboNN/all_lf_bias.npz \\
+        --linearfold_bias_file processed_data_RiboNN/all_lf_bias.npz \\
         --max_sequences -1 --evaluate_test_set \\
         --output_pairs_csv pairs_lf_bias.csv --output_correlation_csv corr_lf_bias.csv
 """
@@ -38,29 +38,21 @@ import numpy as np
 import pandas as pd
 import torch
 from scipy.stats import pearsonr, spearmanr
+from transformers import AutoTokenizer
 
-from bias import build_wc_lookup
+from bias import build_wc_lookup, mRNABERTWithBioPriorHead
 from finetuning import SupervisedDataCollator
 from utils.analysis import (
     build_pair_records,
     evaluate_test_set,
     get_backbone_attentions,
     get_bioprior_attentions,
-    load_model,
     patch_backbone_attention,
     patch_bioprior_attention,
 )
 
 CHECKPOINT_PATH = "outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3"
-BASE_MODEL_NAME = "YYLY66/mRNABERT"
 BIAS_NPZ_PATH = "processed_data_RiboNN/all_lf_bias.npz"
-
-NUM_HEADS = 8
-NUM_BIO_LAYERS = 1
-NUM_LABELS = 78
-MODEL_MAX_LENGTH = 1024
-
-VALID_BIAS_MODES = ("no_bias", "utr_only", "full", "linearfold")
 
 
 def parse_args():
@@ -68,16 +60,9 @@ def parse_args():
         description="Correlate per-layer backbone attention with LinearFold pairwise bias."
     )
     parser.add_argument("--checkpoint_path", type=str, default=CHECKPOINT_PATH,
-                         help="Path to the trained checkpoint to load (must match --bias mode).")
-    parser.add_argument("--num_heads", type=int, default=NUM_HEADS,
-                         help="Attention heads per bio-prior layer (must match the checkpoint's architecture).")
-    parser.add_argument("--num_bio_layers", type=int, default=NUM_BIO_LAYERS,
-                         help="Number of stacked BioPriorAttention layers (must match the checkpoint's "
-                              "architecture, e.g. --num_bio_layers 3 for a 3-layer bio-prior head).")
-    parser.add_argument("--bias", type=str, default="no_bias", choices=VALID_BIAS_MODES,
-                         help="Bio-prior bias mode the checkpoint was trained with. Determines what "
-                              "bio_prior_bias (if any) is fed into the bio-prior head layer(s) during "
-                              "this script's forward passes.")
+                         help="Path to the trained checkpoint to load. Its bio_prior_config.json "
+                              "supplies the architecture (num_heads, num_bio_layers, num_labels) "
+                              "and the bias mode it was trained with.")
     parser.add_argument("--linearfold_bias_file", type=str, default=BIAS_NPZ_PATH,
                          help="Path to the LinearFold .npz. Used both as the ground-truth pairs for "
                               "the correlation analysis and, when --bias linearfold, as the model's "
@@ -106,23 +91,28 @@ def parse_args():
 
 def main():
     args = parse_args()
-    if args.bias == "linearfold" and not args.linearfold_bias_file:
-        raise ValueError("--bias linearfold requires --linearfold_bias_file.")
     max_sequences = None if args.max_sequences is not None and args.max_sequences < 0 else args.max_sequences
     rng = random.Random(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    tokenizer, model = load_model(
-        device,
-        checkpoint_path=args.checkpoint_path,
-        base_model_name=BASE_MODEL_NAME,
-        model_max_length=MODEL_MAX_LENGTH,
-        num_heads=args.num_heads,
-        num_labels=NUM_LABELS,
-        num_bio_layers=args.num_bio_layers,
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.checkpoint_path,
+        padding_side="right",
+        use_fast=True,
+        trust_remote_code=True,
     )
+    print(f"model_max_length inferred from checkpoint tokenizer: {tokenizer.model_max_length}")
+    model, cfg = mRNABERTWithBioPriorHead.from_checkpoint(args.checkpoint_path, device=device)
+    bias_mode = cfg["bias"]
+    print(f"Loaded checkpoint: bias={bias_mode}  num_heads={cfg['num_heads']}  num_bio_layers={cfg['num_bio_layers']}")
+
+    if bias_mode == "linearfold" and not args.linearfold_bias_file:
+        raise ValueError(
+            "This checkpoint was trained with bias=linearfold; pass --linearfold_bias_file."
+        )
+
     patch_backbone_attention(model)
     patch_bioprior_attention(model)
     num_layers = len(model.bert.encoder.layer)
@@ -132,12 +122,12 @@ def main():
           "for explicit attention_probs capture")
 
     wc_lookup = None
-    if args.bias in ("utr_only", "full"):
-        wc_lookup = build_wc_lookup(tokenizer, utr_only=(args.bias == "utr_only"))
+    if bias_mode in ("utr_only", "full"):
+        wc_lookup = build_wc_lookup(tokenizer, utr_only=(bias_mode == "utr_only"))
 
     data_collator = SupervisedDataCollator(
         tokenizer=tokenizer,
-        bias_mode=args.bias,
+        bias_mode=bias_mode,
         wc_lookup=wc_lookup,
         bias_npz_path=args.linearfold_bias_file,
     )
@@ -161,10 +151,10 @@ def main():
                 num_skipped += 1
                 continue
 
-            token_ids = tokenizer(sequence, truncation=True, max_length=MODEL_MAX_LENGTH)["input_ids"]
+            token_ids = tokenizer(sequence, truncation=True, max_length=tokenizer.model_max_length)["input_ids"]
             instance = {
                 "input_ids": torch.tensor(token_ids),
-                "labels": [float("nan")] * NUM_LABELS,
+                "labels": [float("nan")] * cfg["num_labels"],
                 "tx_id": tx_id,
             }
             batch = data_collator([instance])
