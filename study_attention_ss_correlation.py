@@ -9,10 +9,16 @@ encode this information on its own from masked language modeling pre-training. T
 directly: for each test sequence, it extracts per-layer attention (from both the
 backbone and, if present, the bio-prior head) and compares it against
 LinearFold-predicted base pairs. Token pairs that LinearFold predicts to be in
-contact ("positive" pairs) are compared to a random sample of non-contact pairs
-("negative" pairs), and the Pearson/Spearman correlation between attention score
-and LinearFold pairing is computed per layer. A high correlation in the backbone
-layers would indicate the structural information is already learned implicitly.
+contact ("positive" pairs) are compared to distance-matched non-contact pairs
+("negative" pairs, sampled at the same sequence distance as their paired positive),
+and the Pearson/Spearman correlation between attention score and LinearFold pairing
+is computed per layer. Distance-matching controls for the fact that LinearFold
+contacts skew local and mRNABERT's backbone uses an ALiBi-style positional bias
+that also decays with distance regardless of content -- without matching,
+a purely positional/generic-locality effect could masquerade as evidence that
+attention encodes base-pairing. A high correlation in the backbone layers,
+surviving this control, would indicate the structural information is already
+learned implicitly (beyond what distance alone predicts).
 
 Examples:
     # No-bias checkpoint, 200 test sequences
@@ -73,7 +79,8 @@ def parse_args():
     parser.add_argument("--max_sequences", type=int, required=True,
                          help="Number of test-set transcripts to process (use -1 to run on all).")
     parser.add_argument("--negative_ratio", type=int, default=5,
-                         help="Number of sampled unpaired (negative) pairs per positive pair.")
+                         help="Number of distance-matched unpaired (negative) pairs sampled per "
+                              "positive pair, each at the same sequence distance as its positive.")
     parser.add_argument("--max_negatives_per_seq", type=int, default=2000,
                          help="Cap on sampled negative pairs per sequence.")
     parser.add_argument("--seed", type=int, default=0, help="Random seed for negative-pair sampling.")

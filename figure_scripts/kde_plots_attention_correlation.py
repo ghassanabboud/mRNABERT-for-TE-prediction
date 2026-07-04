@@ -3,9 +3,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 MODEL_DIRS = {
-    "no_bias": "balanced_sampling_200_seqs",
-    "wc": "balanced_sampling_200_seqs_wc",
-    "linearfold": "balanced_sampling_200_seqs_lf",
+    "no_bias": "balanced_sampling_400_seqs_distance_matched",
+    "wc": "balanced_sampling_400_seqs_wc_biased_distance_matched",
+    "linearfold": "balanced_sampling_400_seqs_lf_biased_distance_matched",
 }
 BASE_PATH = "outputs/attention_correlation"
 
@@ -53,7 +53,7 @@ for layer_idx in range(NUM_BACKBONE_LAYERS):
     ax.set_xlabel("Log attention score")
     ax.set_ylabel("Density" if layer_idx % 4 == 0 else "")
 fig.tight_layout()
-fig.savefig("figures/attention_backbone_grid.png", dpi=300)
+fig.savefig("figures/attention_backbone_grid_distance_matched.png", dpi=300)
 
 # --- Plot 2: 3x1 grid of bio-prior layers, one row per model ---
 fig2, axes2 = plt.subplots(3, 1, figsize=FIGSIZE, sharex=True)
@@ -69,4 +69,4 @@ for i, model_name in enumerate(MODEL_DIRS):
     ax.set_ylabel("Density")
     ax.set_xlim(left=10e-7,right=10e-1)
 fig2.tight_layout()
-fig2.savefig("figures/attention_bioprior_grid.png", dpi=300)
+fig2.savefig("figures/attention_bioprior_grid_distance_matched.png", dpi=300)

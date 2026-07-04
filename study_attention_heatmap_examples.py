@@ -126,13 +126,14 @@ def main():
     for tx_id, rho in selected:
         sequence = seq_lookup.loc[tx_id]
         bias_pairs = bias_lookup[tx_id]
-        attn_matrix, contact_matrix, tokens = extract_dense_matrices(
+        attn_matrix, contact_matrix, tokens, start_codon_idx = extract_dense_matrices(
             model, tokenizer, data_collator, cfg, sequence, tx_id, bias_pairs, args.layer_idx, device
         )
         output[f"{tx_id}__attn_matrix"] = attn_matrix
         output[f"{tx_id}__contact_matrix"] = contact_matrix
         output[f"{tx_id}__tokens"] = np.array(tokens)
         output[f"{tx_id}__spearman_r"] = np.array(rho)
+        output[f"{tx_id}__start_codon_idx"] = np.array(start_codon_idx)
 
     output["tx_ids"] = np.array([tx_id for tx_id, _ in selected])
     output["layer_idx"] = np.array(args.layer_idx)

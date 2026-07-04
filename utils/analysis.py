@@ -335,6 +335,13 @@ def build_pair_records(bias_pairs, seq_len, negative_ratio, max_negatives, rng):
 
     bias_pairs indices must already be offset (+1) to align with tokenized positions
     (position 0 = CLS). Positions 0 and seq_len - 1 (CLS/SEP) are excluded from both sets.
+
+    Negatives are distance-matched: for each positive pair (i, j) at sequence distance
+    d = |i - j|, negatives are sampled at that same distance d (one endpoint random,
+    the other placed d away, in whichever direction stays in bounds). This controls for
+    the fact that LinearFold contacts skew local, so uniformly-random negatives would
+    mostly be far apart -- letting any generic distance-attention correlation (e.g. from
+    an ALiBi-style positional bias) masquerade as a base-pairing signal.
     """
     positive = []
     positive_set = set()
@@ -345,22 +352,27 @@ def build_pair_records(bias_pairs, seq_len, negative_ratio, max_negatives, rng):
         positive.append((ti, tj, cnt))
         positive_set.add((ti, tj))
 
-    n_neg_target = min(max_negatives, negative_ratio * max(len(positive), 1))
     negative = []
     if seq_len > 3:
-        attempts = 0
-        max_attempts = n_neg_target * 20 + 100
-        while len(negative) < n_neg_target and attempts < max_attempts:
-            attempts += 1
-            i = rng.randrange(1, seq_len - 1)
-            j = rng.randrange(1, seq_len - 1)
-            if i == j:
-                continue
-            a, b = (i, j) if i < j else (j, i)
-            if (a, b) in positive_set:
-                continue
-            positive_set.add((a, b))  # avoid resampling the same negative pair
-            negative.append((a, b, 0))
+        for ti, tj, _ in positive:
+            if len(negative) >= max_negatives:
+                break
+            d = abs(ti - tj)
+            n_found = 0
+            attempts = 0
+            max_attempts = negative_ratio * 20 + 20
+            while n_found < negative_ratio and attempts < max_attempts and len(negative) < max_negatives:
+                attempts += 1
+                i = rng.randrange(1, seq_len - 1)
+                j = i + d if rng.random() < 0.5 else i - d
+                if j < 1 or j >= seq_len - 1 or j == i:
+                    continue
+                a, b = (i, j) if i < j else (j, i)
+                if (a, b) in positive_set:
+                    continue
+                positive_set.add((a, b))  # avoid resampling the same negative pair
+                negative.append((a, b, 0))
+                n_found += 1
 
     return positive, negative
 
@@ -400,7 +412,14 @@ def extract_dense_matrices(model, tokenizer, data_collator, cfg, sequence, tx_id
     Mirrors the per-sequence loop in study_attention_ss_correlation.py, but
     keeps the whole matrix instead of indexing into a sampled subset of pairs
     -- needed to render a heatmap rather than compute a correlation.
+
+    Also returns `start_codon_idx`, the position of the first CDS token (the
+    start codon) within `tokens`, accounting for the leading CLS token, so
+    callers can crop the matrices to a window around it.
     """
+    utr5_len_nt, _ = find_utr5_cds_boundaries(sequence.split(" "))
+    start_codon_idx = utr5_len_nt + 1  # +1 for CLS token
+
     token_ids = tokenizer(sequence, truncation=True, max_length=tokenizer.model_max_length)["input_ids"]
     tokens = tokenizer.convert_ids_to_tokens(token_ids)
     instance = {
@@ -429,7 +448,7 @@ def extract_dense_matrices(model, tokenizer, data_collator, cfg, sequence, tx_id
         contact_matrix[ti, tj] = cnt
         contact_matrix[tj, ti] = cnt
 
-    return attn_matrix, contact_matrix, tokens
+    return attn_matrix, contact_matrix, tokens, start_codon_idx
 
 
 def evaluate_test_set(model, tokenizer, data_collator, device, batch_size, test_csv_path):
