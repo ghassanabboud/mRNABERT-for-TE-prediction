@@ -1,12 +1,11 @@
 """Helper functions for insertional analysis of motif insertion effects on predicted TE."""
 
-import os
 import types
 
 import numpy as np
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer, BertConfig
+from transformers import AutoTokenizer
 from typing import Dict, List, Tuple
 from bias import mRNABERTWithBioPriorHead
 from finetuning import SupervisedDataset, calculate_metric_for_regression
@@ -115,31 +114,67 @@ def generate_variants(tx_id, tokens, utr5_len_nt, num_cds_codons, motif, upstrea
         yield tx_id, codon_offset * 3, " ".join(variant)
 
 
-def load_model(device, checkpoint_path, base_model_name, model_max_length, num_heads, num_labels, num_bio_layers):
-    tokenizer = AutoTokenizer.from_pretrained(
-        checkpoint_path,
-        model_max_length=model_max_length,
-        padding_side="right",
-        use_fast=True,
-        trust_remote_code=True,
-    )
+def generate_multi_aug_variants(tx_id, tokens, utr5_len_nt, rng, min_offset, max_offset, num_augs_list, motif="ATG"):
+    """Insert a random scattering of upstream AUGs into one transcript's 5'UTR, at
+    a range of counts.
 
-    config = BertConfig.from_pretrained(base_model_name)
-    base_model = AutoModel.from_pretrained(base_model_name, config=config, trust_remote_code=True)
+    For each value in `num_augs_list`, pick that many distinct nucleotide
+    positions in the 5'UTR window between `min_offset` and `max_offset` nt
+    upstream of the start codon, and splice one copy of `motif` in at each
+    position. Also yields the untouched sequence as the num_augs=0 baseline.
 
-    model = mRNABERTWithBioPriorHead(
-        base_model=base_model,
-        hidden_size=768,
-        num_heads=num_heads,
-        num_labels=num_labels,
-        num_bio_layers=num_bio_layers,
-    )
-    state_dict = torch.load(os.path.join(checkpoint_path, "pytorch_model.bin"), map_location=device)
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.eval()
+    Parameters
+    ----------
+    tx_id : str
+        Transcript identifier, passed through unchanged for use as a key in
+        the output records.
+    tokens : List[str]
+        Space-split tokens of the full sequence (5'UTR nucleotides followed
+        by CDS codons), as produced by `find_utr5_cds_boundaries`'s caller.
+    utr5_len_nt : int
+        Number of nucleotide tokens in the 5'UTR, i.e. the index of the first
+        CDS codon token.
+    rng : random.Random
+        Random source used to sample insertion positions; pass a seeded
+        instance for reproducible variants across a run.
+    min_offset : int
+        Smallest distance upstream of the start codon (in nt) an inserted AUG
+        may land at, e.g. 50 keeps insertions at least 50 nt away.
+    max_offset : int
+        Largest distance upstream of the start codon (in nt) an inserted AUG
+        may land at, e.g. 300 keeps insertions within 300 nt of it.
+    num_augs_list : List[int]
+        Counts of AUGs to insert, e.g. [1, 2, 3, 5, 10]; one variant is
+        produced per count.
+    motif : str
+        Nucleotide motif inserted at each chosen position (default "ATG").
 
-    return tokenizer, model
+    Returns
+    -------
+    tx_id : str
+        The input transcript identifier, unchanged.
+    insertion_positions : List[int]
+        Sorted positions of the inserted AUGs, in nt relative to the start
+        codon (negative = upstream). Empty for the num_augs=0 baseline.
+    num_augs : int
+        Number of AUGs inserted in this variant.
+    sequence : str
+        Space-joined token sequence of the variant, ready for tokenization.
+    """
+    yield tx_id, [], 0, " ".join(tokens)
+
+    low = utr5_len_nt - max_offset
+    high = utr5_len_nt - min_offset
+    valid_indices = list(range(low, high + 1))
+
+    for num_augs in num_augs_list:
+        positions = rng.sample(valid_indices, num_augs)
+        variant = list(tokens)
+        for idx in sorted(positions, reverse=True):
+            variant[idx:idx] = list(motif)
+        insertion_positions = sorted(idx - utr5_len_nt for idx in positions)
+        yield tx_id, insertion_positions, num_augs, " ".join(variant)
+
 
 def get_cds(rna_seq: str) -> str:
     """Extract the coding sequence (CDS) from a full RNA sequence in mRNABERT convention."""
@@ -328,6 +363,73 @@ def build_pair_records(bias_pairs, seq_len, negative_ratio, max_negatives, rng):
             negative.append((a, b, 0))
 
     return positive, negative
+
+
+def select_top_correlated_sequences(pairs_df, layer_idx, num_examples, min_positive=5):
+    """Rank transcripts by per-sequence Spearman correlation between attention
+    score and LinearFold bias count, for one layer of an existing pairs CSV
+    (as produced by study_attention_ss_correlation.py).
+
+    Only transcripts with at least `min_positive` positive (bias_count > 0)
+    rows are considered, since a per-sequence correlation estimated from very
+    few contact pairs is unreliable.
+
+    Returns a list of (tx_id, spearman_r) tuples, longest `num_examples`,
+    sorted by descending correlation.
+    """
+    layer_df = pairs_df[pairs_df["layer"] == layer_idx]
+
+    results = []
+    for tx_id, group in layer_df.groupby("tx_id"):
+        n_positive = int((group["bias_count"] > 0).sum())
+        if n_positive < min_positive or len(group) < 2:
+            continue
+        rho, _ = spearmanr(group["bias_count"], group["attn_score"])
+        if not np.isnan(rho):
+            results.append((tx_id, float(rho)))
+
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results[:num_examples]
+
+
+def extract_dense_matrices(model, tokenizer, data_collator, cfg, sequence, tx_id, bias_pairs, layer_idx, device):
+    """Run one forward pass and return the full dense (L, L) attention matrix
+    for `layer_idx` alongside the full dense (L, L) LinearFold contact-count
+    matrix, plus the tokenized sequence for axis labeling.
+
+    Mirrors the per-sequence loop in study_attention_ss_correlation.py, but
+    keeps the whole matrix instead of indexing into a sampled subset of pairs
+    -- needed to render a heatmap rather than compute a correlation.
+    """
+    token_ids = tokenizer(sequence, truncation=True, max_length=tokenizer.model_max_length)["input_ids"]
+    tokens = tokenizer.convert_ids_to_tokens(token_ids)
+    instance = {
+        "input_ids": torch.tensor(token_ids),
+        "labels": [float("nan")] * cfg["num_labels"],
+        "tx_id": tx_id,
+    }
+    batch = data_collator([instance])
+    input_ids = batch["input_ids"].to(device)
+    attention_mask = batch["attention_mask"].to(device)
+    bio_prior_bias = batch["bio_prior"].to(device) if "bio_prior" in batch else None
+    seq_len = input_ids.shape[1]
+
+    with torch.no_grad():
+        model(input_ids=input_ids, attention_mask=attention_mask, bio_prior_bias=bio_prior_bias)
+    layer_attns = get_backbone_attentions(model) + get_bioprior_attentions(model)
+
+    attn_mean = layer_attns[layer_idx].mean(dim=0)  # (L, L), averaged over heads
+    attn_matrix = ((attn_mean + attn_mean.T) / 2.0).cpu().numpy()
+
+    contact_matrix = np.zeros((seq_len, seq_len), dtype=np.int32)
+    for ti, tj, cnt in bias_pairs:
+        ti, tj, cnt = int(ti) + 1, int(tj) + 1, int(cnt)  # +1 for CLS token
+        if cnt <= 0 or ti >= seq_len - 1 or tj >= seq_len - 1:
+            continue
+        contact_matrix[ti, tj] = cnt
+        contact_matrix[tj, ti] = cnt
+
+    return attn_matrix, contact_matrix, tokens
 
 
 def evaluate_test_set(model, tokenizer, data_collator, device, batch_size, test_csv_path):
