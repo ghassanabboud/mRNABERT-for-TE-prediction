@@ -5,7 +5,7 @@ import seaborn as sns
 
 from utils.plotting import bonferroni_correct, dodge_x, draw_sig_bar, hue_offsets, nadeau_bengio_ttest, sig_label
 
-plt.rcParams.update({'font.size': 12})
+plt.rcParams.update({'font.size': 14})
 
 
 # REPLACE WITH YOUR OWN PATHS AND CORRESPONDING MODES / MAX LENGTHS
@@ -44,6 +44,9 @@ for path, mode, max_length in zip(paths, modes, max_lengths):
     df_list.append(df)
 
 df = pd.concat(df_list, ignore_index=True)
+
+summary = df.groupby(["mode", "Maximum Sequence Length"])["eval_r2_mean_TE"].agg(["mean", "std"])
+print(summary)
 
 plt.figure(figsize=(10, 7))
 ax = sns.boxplot(x="mode", y="eval_r2_mean_TE", hue="Maximum Sequence Length",
