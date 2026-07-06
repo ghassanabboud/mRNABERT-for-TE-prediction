@@ -5,6 +5,8 @@ from scipy import stats
 
 from utils.plotting import bonferroni_correct, sig_label
 
+plt.rcParams.update({'font.size': 14})
+
 #df = pd.read_csv("./outputs/codon_test/codon_test_results.csv")
 df = pd.read_csv("/scratch/izar/gabboud/mRNABERT/outputs/codon_analysis_all_sequences/codon_test_results.csv")
 
@@ -14,19 +16,22 @@ variants["baseline_TE"] = variants["tx_id"].map(baseline)
 variants["delta_TE"] = variants["predicted_mean_TE"] - variants["baseline_TE"]
 
 mapping_for_plot = {
-    "wildtype": "Wildtype Sequence",
-    "optimal": "Codon-optimized Sequence",
-    "least_optimal": "Codon-diminished Sequence"
+    "wildtype": "Wildtype",
+    "optimal": "Codon-optimized",
+    "least_optimal": "Codon-diminished"
 }
 variants["variant_type_plot"] = variants["variant_type"].map(mapping_for_plot)
 df["variant_type_plot"] = df["variant_type"].map(mapping_for_plot)
 
 plot_order = [
-    "Wildtype Sequence",
-    "Codon-optimized Sequence",
-    "Codon-diminished Sequence",
+    "Wildtype",
+    "Codon-optimized",
+    "Codon-diminished",
 ]
 palette = dict(zip(plot_order, sns.color_palette(n_colors=len(plot_order))))
+
+print(df.groupby("variant_type_plot")["CAI"].mean())
+print(variants.groupby("variant_type_plot")["delta_TE"].mean())
 
 #histogram of CAI
 plt.figure(figsize=(8,6))
@@ -57,7 +62,7 @@ p_values = bonferroni_correct(raw_p_values)
 for i, (variant_type, p_value) in enumerate(zip(box_order, p_values)):
     deltas = variants.loc[variants["variant_type_plot"] == variant_type, "delta_TE"].dropna()
     box_top = deltas.max()
-    ax.text(i, box_top + 0.02 * y_range, sig_label(p_value), ha="center", va="bottom")
+    ax.text(i, box_top + 0.01 * y_range, sig_label(p_value), ha="center", va="bottom")
 
 plt.xlabel("")
 plt.ylabel("ΔTE (variant − wildtype)")
