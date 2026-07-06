@@ -79,3 +79,25 @@ plt.ylabel("Count")
 plt.tight_layout()
 plt.savefig("./figures/codon_delta_te_hist_more_seqs.png")
 
+# combined figure: CAI histogram (top) + delta TE boxplot (bottom), stacked vertically
+fig, (ax_hist, ax_box) = plt.subplots(2, 1, figsize=(8, 12))
+
+sns.histplot(data=df, x="CAI", hue="variant_type_plot", hue_order=plot_order, palette=palette, bins=20, kde=True, ax=ax_hist)
+ax_hist.get_legend().set_title(None)
+ax_hist.grid(True, axis="x")
+ax_hist.set_xlabel("Codon Adaptation Index (CAI)")
+ax_hist.set_ylabel("Count")
+
+sns.boxplot(data=variants, x="variant_type_plot", y="delta_TE", order=box_order, palette=palette, ax=ax_box)
+ax_box.yaxis.grid(True)
+ax_box.set_axisbelow(True)
+for i, (variant_type, p_value) in enumerate(zip(box_order, p_values)):
+    deltas = variants.loc[variants["variant_type_plot"] == variant_type, "delta_TE"].dropna()
+    box_top = deltas.max()
+    ax_box.text(i, box_top + 0.01 * y_range, sig_label(p_value), ha="center", va="bottom")
+ax_box.set_xlabel("")
+ax_box.set_ylabel("ΔTE (variant − wildtype)")
+
+plt.tight_layout()
+plt.savefig("./figures/codon_cai_hist_and_delta_te_boxplot_combined.png")
+
