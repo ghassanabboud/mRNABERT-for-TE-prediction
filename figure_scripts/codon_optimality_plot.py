@@ -31,7 +31,7 @@ plot_order = [
 palette = dict(zip(plot_order, sns.color_palette(n_colors=len(plot_order))))
 
 print(df.groupby("variant_type_plot")["CAI"].mean())
-print(variants.groupby("variant_type_plot")["delta_TE"].mean())
+print(variants.groupby("variant_type_plot")["delta_TE"].agg(["mean", "std"]))
 
 #histogram of CAI
 plt.figure(figsize=(8,6))
@@ -87,6 +87,7 @@ ax_hist.get_legend().set_title(None)
 ax_hist.grid(True, axis="x")
 ax_hist.set_xlabel("Codon Adaptation Index (CAI)")
 ax_hist.set_ylabel("Count")
+ax_hist.text(-0.1, 1.01, "A)", transform=ax_hist.transAxes, fontsize=18, va="bottom")
 
 sns.boxplot(data=variants, x="variant_type_plot", y="delta_TE", order=box_order, palette=palette, ax=ax_box)
 ax_box.yaxis.grid(True)
@@ -97,6 +98,7 @@ for i, (variant_type, p_value) in enumerate(zip(box_order, p_values)):
     ax_box.text(i, box_top + 0.01 * y_range, sig_label(p_value), ha="center", va="bottom")
 ax_box.set_xlabel("")
 ax_box.set_ylabel("ΔTE (variant − wildtype)")
+ax_box.text(-0.1, 1.01, "B)", transform=ax_box.transAxes, fontsize=18, va="bottom")
 
 plt.tight_layout()
 plt.savefig("./figures/codon_cai_hist_and_delta_te_boxplot_combined.png")
