@@ -4,7 +4,7 @@
 This repository builds upon the original [mRNABERT codebase](https://github.com/yyly6/mRNABERT). 
 It extends its evaluation on predicting mRNA translation efficiency of ultra-long sequences from the [RiboNN dataset](https://github.com/Sanofi-Public/RiboNN). Mainly, it investigates whether incorporating structural priors during fine-tuning can improve translation efficiency prediction. It also highlights the features learnt by mRNABERT upon fine-tuning. For information on results, kindly refer to the [associated report](report.pdf). Refer to the original [mRNABERT README](https://github.com/yyly6/mRNABERT) for more information about the original model architecture, pre-training and other applications of mRNABERT.
 
-
+![architecture](figures/architecture.png)
 
 ## Contents
 
