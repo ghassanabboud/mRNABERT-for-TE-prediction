@@ -5,20 +5,20 @@ import seaborn as sns
 
 from utils.plotting import bonferroni_correct, dodge_x, draw_sig_bar, hue_offsets, nadeau_bengio_ttest, sig_label
 
-plt.rcParams.update({'font.size': 12})
+plt.rcParams.update({'font.size': 14})
 
 
 # REPLACE WITH YOUR OWN PATHS TO THE CV RESULTS CSV FILES
 paths = [
-    "./outputs/cv_biased_full_1024_frozen_1_layer_no_bias",
-    "./outputs/cv_FIXED_biased_full_1024_frozen_1_layer_wc_bias",
-    "./outputs/cv_biased_full_1024_frozen_1_layer_lf_bias",
-    "./outputs/cv_biased_full_1024_frozen_2_layer_no_bias",
-    "./outputs/cv_FIXED_biased_full_1024_frozen_2_layer_wc_bias",
-    "./outputs/cv_biased_full_1024_frozen_2_layer_lf_bias",
-    "./outputs/cv_biased_full_1024_frozen_3_layer_no_bias",
-    "./outputs/cv_FIXED_biased_full_1024_frozen_3_layer_wc_bias",
-    "./outputs/cv_biased_full_1024_frozen_3_layer_lf_bias",
+    "./outputs/ffn_cv_biased_full_1024_frozen_1_layer_no_bias",
+    "./outputs/ffn_cv_FIXED_biased_full_1024_frozen_1_layer_wc_bias",
+    "./outputs/ffn_cv_biased_full_1024_frozen_1_layer_lf_bias",
+    "./outputs/ffn_cv_biased_full_1024_frozen_2_layer_no_bias",
+    "./outputs/ffn_cv_FIXED_biased_full_1024_frozen_2_layer_wc_bias",
+    "./outputs/ffn_cv_biased_full_1024_frozen_2_layer_lf_bias",
+    "./outputs/ffn_cv_biased_full_1024_frozen_3_layer_no_bias",
+    "./outputs/ffn_cv_FIXED_biased_full_1024_frozen_3_layer_wc_bias",
+    "./outputs/ffn_cv_biased_full_1024_frozen_3_layer_lf_bias",
 
 ]
 
@@ -110,4 +110,4 @@ plt.xlabel("Number of Layers")
 plt.ylabel("R² Score")
 ax.legend(fontsize=12)
 plt.tight_layout()
-plt.savefig("figures/r2_boxplot_biased_models_FIXED.png")
+plt.savefig("figures/r2_boxplot_biased_models_FIXED_FFN.png")
