@@ -47,6 +47,7 @@ class BiasedModelArguments:
     base_model_name: str = field(default="YYLY66/mRNABERT", metadata={"help": "HF model ID for the backbone."})
     num_heads: int = field(default=8, metadata={"help": "Attention heads per bio-prior layer."})
     num_bio_layers: int = field(default=1, metadata={"help": "Number of stacked BioPriorAttention layers."})
+    ffn_dim: int = field(default=3072, metadata={"help": "Hidden dim of the feedforward block in each bio-prior layer."})
     freeze_backbone: bool = field(default=True, metadata={"help": "Freeze BERT backbone; train only bio-prior layers and classifier."})
     bias: str = field(
         default="full",
@@ -116,6 +117,7 @@ def train():
         num_labels=train_dataset.num_labels,
         dropout=model_args.dropout,
         num_bio_layers=model_args.num_bio_layers,
+        ffn_dim=model_args.ffn_dim,
     )
     if model_args.freeze_backbone:
         model.freeze_bert()
@@ -179,6 +181,7 @@ def train():
                 "num_labels": train_dataset.num_labels,
                 "dropout": model_args.dropout,
                 "num_bio_layers": model_args.num_bio_layers,
+                "ffn_dim": model_args.ffn_dim,
                 "bias": model_args.bias,
                 "id2label": {i: name for i, name in enumerate(train_dataset.label_names)},
             }

@@ -104,7 +104,8 @@ class mRNABERTWithBioPriorHead(nn.Module):
     Architecture:
         1. BERT backbone  →  last_hidden_state  (B, L, 768)
         2. for each of num_bio_layers:
-               LayerNorm(hidden + BioPriorAttention(hidden, ext_mask, bias))
+               hidden = LayerNorm(hidden + BioPriorAttention(hidden, ext_mask, bias))
+               hidden = LayerNorm(hidden + FFN(hidden))
         3. CLS-pool  →  dropout  →  Linear  →  logits  (B, num_labels)
     """
 
@@ -116,6 +117,7 @@ class mRNABERTWithBioPriorHead(nn.Module):
         num_labels: int = 78,
         dropout: float = 0.1,
         num_bio_layers: int = 1,
+        ffn_dim: int = 3072,
     ):
         """Wrap a pre-trained BERT backbone with bio-prior attention layers
         and a regression head for predicting translation efficiency.
@@ -134,13 +136,17 @@ class mRNABERTWithBioPriorHead(nn.Module):
             Default 8.
         num_labels : int, optional
             Number of output regression targets (e.g. cell types with a TE
-            value to predict). Default 78 for human 
+            value to predict). Default 78 for human
         dropout : float, optional
-            Dropout probability used in the bio-prior attention layers and
-            before the classifier. Default 0.1.
+            Dropout probability used in the bio-prior attention layers, the
+            feedforward blocks, and before the classifier. Default 0.1.
         num_bio_layers : int, optional
-            Number of stacked bio-prior attention + LayerNorm blocks applied
-            after the backbone. Default 1.
+            Number of stacked bio-prior attention + LayerNorm + feedforward
+            + LayerNorm blocks applied after the backbone. Default 1.
+        ffn_dim : int, optional
+            Hidden dimension of the feedforward block inside each bio-prior
+            layer (Linear -> GELU -> Linear). Default 3072 (4x hidden_size,
+            matching standard BERT).
         """
         super().__init__()
         self.bert = base_model
@@ -149,6 +155,19 @@ class mRNABERTWithBioPriorHead(nn.Module):
             for _ in range(num_bio_layers)
         ])
         self.norms = nn.ModuleList([
+            nn.LayerNorm(hidden_size)
+            for _ in range(num_bio_layers)
+        ])
+        self.ffns = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(hidden_size, ffn_dim),
+                nn.GELU(),
+                nn.Linear(ffn_dim, hidden_size),
+                nn.Dropout(dropout),
+            )
+            for _ in range(num_bio_layers)
+        ])
+        self.ffn_norms = nn.ModuleList([
             nn.LayerNorm(hidden_size)
             for _ in range(num_bio_layers)
         ])
@@ -192,6 +211,7 @@ class mRNABERTWithBioPriorHead(nn.Module):
             num_labels=cfg["num_labels"],
             dropout=cfg["dropout"],
             num_bio_layers=cfg["num_bio_layers"],
+            ffn_dim=cfg["ffn_dim"],
         )
         state_dict = torch.load(os.path.join(checkpoint_path, "pytorch_model.bin"), map_location="cpu")
         model.load_state_dict(state_dict)
@@ -271,8 +291,11 @@ class mRNABERTWithBioPriorHead(nn.Module):
         # Additive mask: 0 for real tokens, large negative for padding
         ext_mask = (1.0 - attention_mask[:, None, None, :].float()) * -1e4  # (B,1,1,L)
 
-        for bio_attn, norm in zip(self.bio_attn_layers, self.norms):
+        for bio_attn, norm, ffn, ffn_norm in zip(
+            self.bio_attn_layers, self.norms, self.ffns, self.ffn_norms
+        ):
             hidden = norm(hidden + bio_attn(hidden, ext_mask, bio_prior_bias))
+            hidden = ffn_norm(hidden + ffn(hidden))
 
         cls_rep = self.dropout(hidden[:, 0, :])  # CLS token  (B, H)
         logits = self.classifier(cls_rep)        # (B, num_labels)
