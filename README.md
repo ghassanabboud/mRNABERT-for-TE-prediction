@@ -171,11 +171,20 @@ python predict.py \
 
 This project also investigates whether fine-tuning mRNABERT on the RiboNN dataset makes the model learn translation-relevant features.
 
-- `study_AUG_insertion.py`: investigates whether the model learns the negative effect of upstream AUGs on translation initiation.
-- `study_codon_optimality.py`: Organisms have optimal codons that are translated more efficiently than their synonymous counterparts due to higher tRNA abundance. This script investigates whether introducing synonymous mutations that use optimal codons increases the predicted translation efficiency.
-- `study_attention_ss_correlation.py`: investigates whether the attention scores of the mRNABERT backbone correlate with LinearFold-predicted secondary structure of the mRNA. This would make introduction of LinearFold bias redundant. 
+- `study_scripts/study_AUG_insertion.py`: investigates whether the model learns the position-dependent effect of upstream AUGs on translation initiation.
+- `study_scripts/study_codon_optimality.py`: Organisms have optimal codons that are translated more efficiently than their synonymous counterparts due to higher tRNA abundance. This script investigates whether introducing synonymous mutations that use optimal codons increases the predicted translation efficiency.
+- `study_scripts/study_attention_ss_correlation.py`: investigates whether the attention scores of the mRNABERT backbone correlate with LinearFold-predicted secondary structure of the mRNA. This would make introduction of LinearFold bias redundant. 
+- `study_scripts/study_multi_AUG_insertion.py`: investigates whether the model learns the negative effect of multiple upstream AUGs on translation initiation.
+- `study_scripts/study_attention_heatmap_examples_multi_model.py`: generates attention heatmaps for a few example sequences across three variants of biased models.
 
-All plotting scripts can also be found in `figure_scripts`.
+All plotting scripts can also be found in `figure_scripts/`. Run any of these scripts as a module from root as follows:
+
+```bash
+    python -m study_scripts.study_AUG_insertion \\
+        --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3 \\
+        --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
+        --max_sequences 200 --output_csv_path insertional_analysis_results.csv
+```
 
 
 ## References

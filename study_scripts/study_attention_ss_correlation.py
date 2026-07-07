@@ -22,14 +22,14 @@ learned implicitly (beyond what distance alone predicts).
 
 Examples:
     # No-bias checkpoint, 200 test sequences
-    python study_attention_ss_correlation.py \\
+    python -m study_scripts.study_attention_ss_correlation \\
         --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3 \\
         --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
         --max_sequences 200 \\
         --output_pairs_csv pairs_no_bias.csv --output_correlation_csv corr_no_bias.csv
 
     # LinearFold-biased checkpoint, also sanity-check metrics on the full test set
-    python study_attention_ss_correlation.py \\
+    python -m study_scripts.study_attention_ss_correlation \\
         --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_lf_bias/val_fold_4_test_fold_3 \\
         --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
         --linearfold_bias_file processed_data_RiboNN/all_lf_bias.npz \\

@@ -2,7 +2,7 @@
 Extract dense attention-score vs. LinearFold-contact matrices for example
 sequences, across three bias variants of the same architecture.
 
-study_attention_heatmap_examples.py does this for a single checkpoint and a
+study_scripts/study_attention_heatmap_examples.py does this for a single checkpoint and a
 single layer. This version hardcodes three checkpoints -- no_bias, wc
 (Watson-Crick), and linearfold -- the no_bias model's --input_pairs_csv, and
 a list of layers (LAYERS) to extract. Example transcripts are selected once,
@@ -13,7 +13,7 @@ model/layer's dense attention matrix alongside the shared LinearFold contact
 matrix for side-by-side heatmap plotting.
 
 Example:
-    python study_attention_heatmap_examples_multi_model.py \\
+    python -m study_scripts.study_attention_heatmap_examples_multi_model \\
         --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
         --linearfold_bias_file processed_data_RiboNN/all_lf_bias.npz \\
         --num_examples 2 \\

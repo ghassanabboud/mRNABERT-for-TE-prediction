@@ -1,15 +1,16 @@
 """
-Insertional analysis: effect of AUG motif insertion on predicted translation efficiency (TE).
+Codon optimality analysis: effect of CDS codon usage on predicted translation efficiency (TE).
 
-For each qualifying transcript in the test set, insert an AUG codon at every admissible
-position around the annotated start codon (out-of-frame in the 5'UTR, in-frame in the CDS),
-run the fine-tuned mRNABERT checkpoint on each variant, and record the predicted mean TE.
+For each qualifying transcript in the test set (5'UTR no longer than MAX_UTR5_LEN nt), compute
+the wildtype CAI, generate a most-optimal-codon and a least-optimal-codon variant of the CDS,
+run the fine-tuned mRNABERT checkpoint on all three sequences, and record the predicted mean TE
+alongside the CAI of each variant.
 
 Example:
-    python study_AUG_insertion.py \\
+    python -m study_scripts.study_codon_optimality \\
         --checkpoint_path outputs/cv_biased_full_1024_frozen_1_layer_no_bias/val_fold_4_test_fold_3 \\
         --test_csv_path processed_data_RiboNN/cv_full/val_fold_4_test_fold_3/test.csv \\
-        --max_sequences 200 --output_csv_path insertional_analysis_results.csv
+        --max_sequences 200 --output_csv_path codon_optimality_analysis_results.csv
 """
 
 import argparse
@@ -19,30 +20,29 @@ import torch
 from transformers import AutoTokenizer
 
 from bias import mRNABERTWithBioPriorHead
-from utils.analysis import find_utr5_cds_boundaries, generate_variants
+from utils.analysis import (
+    find_utr5_cds_boundaries,
+    get_cai,
+    get_max_usage_sequence,
+    get_min_usage_sequence,
+)
 
-MOTIFS = ["ATG"]
+MAX_UTR5_LEN = 300
 
-MIN_UTR5_LEN = 501
-MIN_CDS_LEN = 300
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="uAUG insertion analysis on a fine-tuned mRNABERT checkpoint.")
+    parser = argparse.ArgumentParser(description="Codon optimality analysis on a fine-tuned mRNABERT checkpoint.")
     parser.add_argument("--checkpoint_path", type=str, required=True,
                          help="Path to the trained checkpoint to load.")
     parser.add_argument("--test_csv_path", type=str, required=True,
-                         help="Path to the test.csv of qualifying transcripts to run the insertion analysis on.")
-    parser.add_argument("--upstream_window", type=int, default=200,
-                         help="Number of nucleotide positions upstream of the start codon to scan.")
-    parser.add_argument("--downstream_window", type=int, default=100,
-                         help="Number of in-frame nucleotide positions downstream (within the CDS) to scan.")
-    parser.add_argument("--output_csv_path", type=str, required=True,
+                         help="Path to the test.csv of qualifying transcripts to run the codon optimality analysis on.")
+    parser.add_argument("--output_csv_path", type=str, default="codon_optimality_analysis_results.csv",
                          help="Path to write the per-variant predictions CSV.")
-    parser.add_argument("--max_sequences", type=int, required=True,
+    parser.add_argument("--max_sequences", type=int, default=200,
                          help="Cap on the number of qualifying transcripts to process (use -1 to run on all).")
-    parser.add_argument("--batch_size", type=int, default=32,
+    parser.add_argument("--batch_size", type=int, default=64,
                          help="Batch size for model inference.")
-                    
+
     return parser.parse_args()
 
 
@@ -77,21 +77,22 @@ def main():
             break
 
         tokens = sequence.split()
-        utr5_len_nt, num_cds_codons = find_utr5_cds_boundaries(tokens)
-        cds_len_nt = num_cds_codons * 3
+        utr5_len_nt, _ = find_utr5_cds_boundaries(tokens)
 
-        if utr5_len_nt <= MIN_UTR5_LEN or cds_len_nt < MIN_CDS_LEN:
+        if utr5_len_nt > MAX_UTR5_LEN:
             continue
 
         num_valid_sequences += 1
-        for motif in MOTIFS:
-            records.extend(generate_variants(
-                tx_id, tokens, utr5_len_nt, num_cds_codons, motif,
-                upstream_window=args.upstream_window,
-                downstream_window=args.downstream_window,
-            ))
 
-    print(f"Found {num_valid_sequences} qualifying transcripts with UTR5 > {MIN_UTR5_LEN} nt and CDS > {MIN_CDS_LEN} nt")
+        wildtype_seq = sequence
+        optimal_seq = get_max_usage_sequence(sequence)
+        least_optimal_seq = get_min_usage_sequence(sequence)
+
+        records.append((tx_id, "wildtype", wildtype_seq, get_cai(wildtype_seq)))
+        records.append((tx_id, "optimal", optimal_seq, get_cai(optimal_seq)))
+        records.append((tx_id, "least_optimal", least_optimal_seq, get_cai(least_optimal_seq)))
+
+    print(f"Found {num_valid_sequences} qualifying transcripts with UTR5 <= {MAX_UTR5_LEN} nt")
     print(f"Generated {len(records)} sequence variants from qualifying transcripts")
 
     predicted_mean_te = []
@@ -117,8 +118,9 @@ def main():
 
     result_df = pd.DataFrame({
         "tx_id": [r[0] for r in records],
-        "insertion_position": [r[1] for r in records],
+        "variant_type": [r[1] for r in records],
         "sequence": [r[2] for r in records],
+        "CAI": [r[3] for r in records],
         "predicted_mean_TE": predicted_mean_te,
     })
     result_df.to_csv(args.output_csv_path, index=False)
