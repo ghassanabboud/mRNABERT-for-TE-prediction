@@ -3,6 +3,8 @@
 
 ## Results and Next Steps
 
+NOTE: THESE CONCLUSIONS ARE ACUALLY FALSE. I REALIZED MY EXPERIMENT HAD A CONFOUNDER LATER ON, SEE EXPERIMENT 13.
+
 The sanity check with the `--evaluate_test_set` option shows the consistency of the monkeypatch method. I visualized the attention scores as KDE plots for each layer, with the hue parameter set to whether LinearFold predicts a contact or not. I also show the spearman correlation between the attention scores and the LinearFold bias scores. First, looking at the backbone layers reveals that these layers already learn to give higher attention to pairs that are predicted by LinearFold to be in contact. It should be noted that at no point has the backbone training included secondary structure information. It is learnt naturally from the masked language modeling task. 
 
 
